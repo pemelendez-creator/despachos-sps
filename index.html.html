@@ -1,0 +1,3142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Programador de despacho de bandejas SPS Chile">
+<title>Despacho de Bandejas · SPS Chile</title>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import {
+    getAuth,
+    signInWithEmailAndPassword,
+    signOut,
+    onAuthStateChanged,
+    updatePassword,
+    sendPasswordResetEmail
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import {
+    getFirestore,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    setDoc,
+    addDoc,
+    updateDoc,
+    deleteDoc,
+    query,
+    where,
+    orderBy,
+    onSnapshot,
+    writeBatch,
+    serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDQ_6odz6hR4nBbiiNSrbCZzMOKK1aY38k",
+    authDomain: "despachos-sps.firebaseapp.com",
+    projectId: "despachos-sps",
+    storageBucket: "despachos-sps.firebasestorage.app",
+    messagingSenderId: "591821873195",
+    appId: "1:591821873195:web:fcbffa0907857adb0dca6e"
+  };
+
+  const app  = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db   = getFirestore(app);
+
+  // Exponer a window para que el código principal (no-módulo) pueda usarlas
+  window.FB = {
+    app, auth, db,
+    signInWithEmailAndPassword,
+    signOut,
+    onAuthStateChanged,
+    updatePassword,
+    sendPasswordResetEmail,
+    collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
+    query, where, orderBy, onSnapshot, writeBatch, serverTimestamp,
+    ready: true
+  };
+
+  // Evento personalizado para avisar que Firebase está listo
+  window.dispatchEvent(new Event("firebase-ready"));
+</script>
+<style>
+  :root{
+    --navy:#14366E; --navy-dark:#0f2a55; --blue:#1F5BA6; --blue-soft:#e8eff8; --blue-soft2:#eef3f4; --blue-line:#b9cdec;
+    --ink:#1b2430; --muted:#5b6b7c; --line:#d8e0ea; --bg:#f5f7fb; --white:#fff;
+    --ok:#2e7d52; --ok-soft:#e6f3ec; --warn:#b06a00; --warn-soft:#fff4e2;
+    --danger:#b3261e; --danger-soft:#fbe9e7; --accent:#f2c94c;
+    --radius:10px; --shadow:0 1px 3px rgba(20,54,110,.08), 0 6px 18px rgba(20,54,110,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45;font-size:15px}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 18px 48px}
+  .hidden{display:none !important}
+  .is-disabled{opacity:.5;pointer-events:none}
+
+  /* Header */
+  header.app{background:linear-gradient(120deg,var(--navy),var(--navy-dark));color:#fff}
+  .app-inner{max-width:1180px;margin:0 auto;padding:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .logomark{flex:0 0 auto;height:56px;border-radius:9px;background:#fff;display:flex;align-items:center;justify-content:center;padding:4px 10px;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+  .logomark img{display:block;height:46px;width:auto;max-width:140px;object-fit:contain}
+  .htxt{flex:1;min-width:220px}
+  .htxt h1{margin:0;font-size:19px;font-weight:700}
+  .htxt .sub{margin:2px 0 0;font-size:12.5px;opacity:.82;letter-spacing:.04em;text-transform:uppercase}
+  .userpill{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:5px 12px;font-size:13px;font-weight:600}
+  .langtog{display:inline-flex;border:1px solid rgba(255,255,255,.4);border-radius:999px;overflow:hidden;font-size:12.5px;font-weight:600}
+  .langtog button{background:transparent;color:#fff;border:0;padding:6px 12px;cursor:pointer}
+  .langtog button.on{background:#fff;color:var(--navy)}
+  .iconbtn{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}
+  .iconbtn:hover{background:rgba(255,255,255,.1)}
+
+  /* Login */
+  .login{max-width:440px;margin:60px auto 0;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:28px}
+  .login h2{margin:0 0 6px;color:var(--navy);font-size:20px}
+  .login .lp{color:var(--muted);font-size:13.5px;margin:0 0 18px}
+  .login label{display:block;font-size:12px;font-weight:600;color:var(--navy);margin:0 0 4px}
+  .login input{width:100%;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:15px;font-family:inherit}
+  .login input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft)}
+  .login .btn{margin-top:14px;width:100%}
+  .login .stat{margin-top:12px;font-size:13px;min-height:18px}
+  .login .stat.ok{color:var(--ok)} .login .stat.err{color:var(--danger)} .login .stat.warn{color:var(--warn)}
+
+  /* Stats */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px;margin-bottom:16px}
+  @media(max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;box-shadow:var(--shadow)}
+  .stat .v{font-size:23px;font-weight:800;color:var(--navy);line-height:1}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:3px}
+
+  /* Grid layout */
+  .grid{display:grid;grid-template-columns:1.2fr .95fr;gap:18px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .cardhead{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .cardhead h2{margin:0;font-size:15px;color:var(--navy);font-weight:700}
+  .cardbody{padding:16px}
+
+  /* Calendar */
+  .calnav{display:flex;align-items:center;gap:8px}
+  .calnav button{border:1px solid var(--line);background:#fff;color:var(--navy);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:16px;line-height:1}
+  .calnav button:hover{background:var(--blue-soft)}
+  .mlabel{min-width:150px;text-align:center;font-weight:700;color:var(--navy);text-transform:capitalize}
+  .dow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin:4px 0 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;text-align:center}
+  .days{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .day{position:relative;aspect-ratio:1/1;border:1px solid var(--line);border-radius:9px;background:#fff;cursor:pointer;display:flex;flex-direction:column;padding:6px 7px;transition:.12s;overflow:hidden}
+  .day .dnum{font-size:13px;font-weight:600;color:var(--ink)}
+  .day:hover{border-color:var(--blue);background:var(--blue-soft)}
+  .day.muted{background:#fafbfc;cursor:not-allowed;border-style:dashed}
+  .day.muted .dnum{color:#b7c0cc}
+  .day.muted:hover{background:#fafbfc;border-color:var(--line)}
+  .day.today{box-shadow:inset 0 0 0 2px var(--blue)}
+  .day.sel{box-shadow:inset 0 0 0 2px var(--ok)}
+  .day.partial{background:var(--blue-soft);border-color:var(--blue-line)}
+  .day.full{background:var(--navy);border-color:var(--navy)}
+  .day.full .dnum{color:#fff}
+  .day .cellfoot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:4px}
+  .day .ctrays{font-size:11px;font-weight:800;color:var(--navy)}
+  .day.full .ctrays{color:#fff}
+  .day .cdots{display:flex;gap:3px}
+  .cdot{width:7px;height:7px;border-radius:50%;background:#cfd9e6}
+  .cdot.used{background:var(--blue)}
+  .cdot.fullt{background:var(--navy)}
+  .day.full .cdot{background:rgba(255,255,255,.35)}
+  .day.full .cdot.used,.day.full .cdot.fullt{background:#fff}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .swatch{width:13px;height:13px;border-radius:4px;border:1px solid var(--line)}
+  .swatch.p{background:var(--blue-soft);border-color:var(--blue-line)}
+  .swatch.f{background:var(--navy);border-color:var(--navy)}
+  .swatch.t{background:#fff;box-shadow:inset 0 0 0 2px var(--blue)}
+
+  /* Forms */
+  label.fl{display:block;font-size:12px;font-weight:600;color:var(--navy);margin:12px 0 4px}
+  label.fl:first-child{margin-top:0}
+  input,select,textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:14px;font-family:inherit;background:#fff;color:var(--ink)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft)}
+  textarea{resize:vertical;min-height:48px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  @media(max-width:520px){.row2,.row3{grid-template-columns:1fr}}
+
+  /* Buttons */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:none}
+  .btn.primary{background:var(--navy);color:#fff} .btn.primary:hover{background:var(--navy-dark)}
+  .btn.ghost{background:#fff;color:var(--navy);border:1px solid var(--line)} .btn.ghost:hover{background:var(--blue-soft)}
+  .btn.danger{background:#fff;color:var(--danger);border:1px solid var(--danger)} .btn.danger:hover{background:var(--danger-soft)}
+  .btn.warn{background:#fff;color:var(--warn);border:1px solid var(--warn)} .btn.warn:hover{background:var(--warn-soft)}
+  .btn.success{background:var(--ok);color:#fff} .btn.success:hover{filter:brightness(.92)}
+  .btn.sm{padding:6px 10px;font-size:13px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btnrow{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+
+  .seldate{font-size:18px;font-weight:700;color:var(--navy);text-transform:capitalize}
+  .empty{color:var(--muted);font-size:14px;text-align:center;padding:24px 8px}
+  .empty svg{width:40px;height:40px;opacity:.35;display:block;margin:0 auto 10px}
+
+  /* Truck utilization */
+  .trucks{margin:14px 0}
+  .tk{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px;background:#fcfdff}
+  .tk .tkhead{display:flex;align-items:center;justify-content:space-between;font-size:13.5px}
+  .tk .tkname{font-weight:700;color:var(--navy)}
+  .tk .tkcap{font-size:12px;color:var(--muted)}
+  .bar{height:7px;background:#e7edf5;border-radius:6px;margin-top:7px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--blue);border-radius:6px}
+  .bar i.hot{background:var(--navy)}
+  .tk .tkmeta{font-size:11.5px;color:var(--muted);margin-top:5px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+
+  /* Dispatch rows */
+  .dlist{margin:10px 0}
+  .drow{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px;background:#fff}
+  .drow .d1{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .drow .dname{font-weight:700}
+  .drow .dtrays{font-size:13px;font-weight:800;color:var(--navy);background:var(--blue-soft);padding:3px 9px;border-radius:7px;white-space:nowrap}
+  .drow .d2{font-size:12px;color:var(--muted);margin-top:5px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+  .drow .d2.dark{color:var(--ink)}
+  .tag{display:inline-flex;align-items:center;gap:5px;background:var(--navy);color:#fff;font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px}
+  .tag.convoy{background:var(--blue)}
+  .tag.pending{background:var(--warn-soft);color:var(--warn);border:1px solid #f0d9ab}
+  .tag.sent{background:var(--ok-soft);color:var(--ok);border:1px solid #bfe0cd}
+  .drow .d3{display:flex;gap:8px;margin-top:9px;flex-wrap:wrap;align-items:center}
+  .drow .d3 a{color:var(--blue);text-decoration:none;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:5px}
+  .drow .d3 a svg{width:14px;height:14px}
+  .drow .acts{display:flex;gap:6px;margin-left:auto}
+
+  /* Suggestion box */
+  .sg{border-radius:9px;padding:11px 12px;margin-top:12px;font-size:13px;border:1px solid}
+  .sg.ok{background:var(--ok-soft);border-color:#bfe0cd}
+  .sg.warn{background:var(--warn-soft);border-color:#f0d9ab}
+  .sg.bad{background:var(--danger-soft);border-color:#f2c7c1}
+  .sg .sgt{font-weight:700;display:flex;align-items:center;gap:7px;margin-bottom:3px}
+  .sg ul{margin:6px 0 0;padding-left:18px} .sg li{margin:2px 0}
+
+  .pill{display:inline-flex;align-items:center;gap:6px;background:var(--blue-soft);color:var(--navy);border-radius:999px;padding:4px 12px;font-weight:700;font-size:14px}
+  .maplink{display:inline-flex;align-items:center;gap:7px;background:var(--blue-soft);color:var(--navy);text-decoration:none;border-radius:8px;padding:6px 11px;font-weight:600;font-size:13px}
+  .maplink:hover{background:#dde8f7} .maplink svg{width:15px;height:15px}
+
+  /* Modal */
+  .ov{position:fixed;inset:0;background:rgba(15,30,60,.45);display:none;align-items:flex-start;justify-content:center;padding:30px 16px;z-index:50;overflow:auto}
+  .ov.show{display:flex}
+  .modal{background:#fff;border-radius:14px;max-width:600px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  .modal .mh{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+  .modal .mh h3{margin:0;font-size:16px;color:var(--navy)}
+  .modal .mh .x{border:0;background:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1}
+  .modal .mb{padding:18px;max-height:75vh;overflow:auto}
+  .farmrow{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);border-radius:9px;margin-bottom:8px}
+  .farmrow .fn{flex:1;min-width:0}
+  .farmrow .fn .nm{font-weight:700}
+  .farmrow .fn .ph{font-size:12.5px;color:var(--muted)}
+  .hint{font-size:12px;color:var(--muted);margin-top:6px}
+  .sec{border-top:1px solid var(--line);margin-top:16px;padding-top:14px}
+  .sec h4{margin:0 0 6px;font-size:13px;color:var(--navy)}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;align-items:center}
+  .storenote{font-size:11.5px;color:var(--muted);margin-left:auto}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  .dot.on{background:var(--ok)} .dot.off{background:var(--warn)}
+  footer{margin-top:26px;text-align:center;font-size:11.5px;color:var(--muted)}
+
+  @media print {
+    header.app, .toolbar, .calnav, .btn, .ov, footer, .stats { display: none !important; }
+    .grid { display: block; }
+    .card { box-shadow: none; margin-bottom: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="app">
+  <div class="app-inner">
+    <div class="logomark"><img src="data:image/jpeg;base64,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" alt="SPS Chile"></div>
+    <div class="htxt">
+      <h1 id="t_title">Programador de Despacho de Bandejas</h1>
+      <div class="sub" id="t_sub">South Pacific Seeds Chile · Invernaderos → Campo · Production Dept.</div>
+    </div>
+    <span class="userpill hidden" id="userPill"></span>
+    <button class="iconbtn hidden" id="logoutBtn" onclick="logout()">Cerrar sesión</button>
+    <div class="langtog">
+      <button id="lg_es" class="on" onclick="setLang('es')">ES</button>
+      <button id="lg_en" onclick="setLang('en')">EN</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- LOGIN VIEW -->
+  <section class="login" id="loginView">
+    <h2 id="t_login_title">Ingreso de usuario</h2>
+    <p class="lp" id="t_login_sub">Solo usuarios autorizados pueden acceder al programador.</p>
+    <label for="usernameInput" id="t_login_label">Correo corporativo</label>
+    <input id="usernameInput" type="email" autocomplete="username" placeholder="tucorreo@spsc.cl">
+    <label for="passwordInput" style="margin-top:10px">Contraseña</label>
+    <input id="passwordInput" type="password" autocomplete="current-password" placeholder="Tu contraseña">
+    <button class="btn primary" id="loginBtn" onclick="login()">Ingresar</button>
+    <div class="stat" id="loginStatus"></div>
+    <div style="margin-top:12px;text-align:center">
+      <a href="#" onclick="promptResetPassword(event)" style="color:var(--blue);font-size:12.5px;text-decoration:none">¿Olvidaste tu contraseña?</a>
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)">
+      <strong>Usuarios habilitados:</strong><br>
+      Esteban Melendez · Winston Colvin · Claudio Stockebrand · Ignacio Poblete · Rafael Reveco · Rafael Rebolledo
+    </div>
+  </section>
+
+  <!-- MAIN APP VIEW -->
+  <div id="appView" class="hidden">
+
+    <div class="stats">
+      <div class="stat"><div class="v" id="s_days">0</div><div class="l" id="t_sdays">Días con despacho</div></div>
+      <div class="stat"><div class="v" id="s_trays">0</div><div class="l" id="t_strays">Bandejas programadas</div></div>
+      <div class="stat"><div class="v" id="s_trips">0</div><div class="l" id="t_strips">Viajes programados</div></div>
+      <div class="stat"><div class="v" id="s_next">—</div><div class="l" id="t_snext">Próximo despacho</div></div>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <div class="cardhead">
+          <h2 id="t_cal">Calendario de despachos</h2>
+          <div class="calnav">
+            <button onclick="moveMonth(-1)">‹</button>
+            <div class="mlabel" id="mlabel"></div>
+            <button onclick="moveMonth(1)">›</button>
+          </div>
+        </div>
+        <div class="cardbody">
+          <div class="dow" id="dow"></div>
+          <div class="days" id="days"></div>
+          <div class="legend">
+            <span><i class="swatch"></i><span id="t_lg_a">Disponible</span></span>
+            <span><i class="swatch p"></i><span id="t_lg_p">Capacidad parcial</span></span>
+            <span><i class="swatch f"></i><span id="t_lg_f">Sin capacidad</span></span>
+            <span><i class="swatch t"></i><span id="t_lg_t">Hoy</span></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="cardhead"><h2 id="panelTitle">Detalle</h2></div>
+        <div class="cardbody" id="panel"></div>
+      </section>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn primary sm" onclick="openOutlook()" id="t_bmail">📧 Enviar pendientes (Outlook)</button>
+      <button class="btn ghost sm" onclick="openOutlookWeb()" title="Abre Outlook Web en el navegador (útil si el Outlook de escritorio no responde)">🌐 Outlook Web</button>
+      <button class="btn success sm" onclick="markPendingSent()" id="t_bmark">Marcar como enviados</button>
+      <button class="btn warn sm" onclick="openReturnsPanel()" title="Registrar bandejas devueltas por los agricultores">📦 Recuperación de bandejas</button>
+      <button class="btn ghost sm" onclick="openConfig()" id="t_bcfg">Configuración</button>
+      <button class="btn ghost sm" onclick="openFarmers()" id="t_bfarm">Agricultores</button>
+      <button class="btn ghost sm" onclick="document.getElementById('impFarmers').click()" title="Importa una base de agricultores desde archivo JSON (sin borrar despachos ni configuración)">👥 Importar agricultores</button>
+      <input type="file" id="impFarmers" accept="application/json" style="display:none" onchange="importFarmers(event)">
+      <button class="btn ghost sm" onclick="exportCSV()" id="t_bcsv">📊 Exportar a Excel</button>
+      <button class="btn ghost sm" onclick="exportData()" id="t_bexp">Exportar JSON</button>
+      <button class="btn ghost sm" onclick="document.getElementById('imp').click()" id="t_bimp">Importar</button>
+      <button class="btn ghost sm" onclick="window.print()" id="t_bprint">Imprimir</button>
+      <button class="btn danger sm hidden" onclick="promptReset()" id="resetBtn">Resetear todo</button>
+      <input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(event)">
+      <span class="storenote" id="storenote"></span>
+    </div>
+
+    <footer id="t_foot">South Pacific Seeds Chile S.A. — Production Dept. · Herramienta interna de programación logística.</footer>
+  </div>
+</div>
+
+<!-- Returns / Balances modal -->
+<div class="ov" id="ovReturns"><div class="modal" style="max-width:820px">
+  <div class="mh">
+    <h3>📦 Recuperación de bandejas</h3>
+    <button class="x" onclick="closeOv('ovReturns')">×</button>
+  </div>
+  <div class="mb" id="returnsBody"></div>
+</div></div>
+
+<!-- Farmers modal -->
+<div class="ov" id="ovFarm"><div class="modal">
+  <div class="mh"><h3 id="t_fmh">Agricultores</h3><button class="x" onclick="closeOv('ovFarm')">×</button></div>
+  <div class="mb"><div id="farmList"></div><div class="sec" id="farmForm"></div></div>
+</div></div>
+
+<!-- Config modal -->
+<div class="ov" id="ovCfg"><div class="modal">
+  <div class="mh"><h3 id="t_cmh">Configuración</h3><button class="x" onclick="closeOv('ovCfg')">×</button></div>
+  <div class="mb" id="cfgBody"></div>
+</div></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   FIREBASE API MODULE
+   ============================================================
+   Este módulo maneja toda la comunicación con Firebase:
+   - Autenticación (login/logout de usuarios)
+   - Firestore (agricultores, despachos, devoluciones)
+   - Sincronización en tiempo real entre usuarios
+
+   Si Firebase no está disponible (offline o error), la app
+   cae automáticamente al modo local con localStorage.
+   ============================================================ */
+var FBApi = (function(){
+
+  // Espera a que Firebase esté listo (se carga async por ser tipo module)
+  function waitForFirebase(){
+    return new Promise(function(resolve){
+      if(window.FB && window.FB.ready){ resolve(); return; }
+      window.addEventListener("firebase-ready", function(){resolve();}, {once:true});
+      // Timeout de seguridad: si en 5 segundos no cargó, seguimos sin Firebase
+      setTimeout(function(){resolve();}, 5000);
+    });
+  }
+
+  function isAvailable(){
+    return !!(window.FB && window.FB.ready);
+  }
+
+  /* ---------- Autenticación ---------- */
+
+  function signIn(email, password){
+    if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
+    return window.FB.signInWithEmailAndPassword(window.FB.auth, email, password)
+      .then(function(cred){ return cred.user; });
+  }
+
+  function signOut(){
+    if(!isAvailable()) return Promise.resolve();
+    return window.FB.signOut(window.FB.auth);
+  }
+
+  function onAuthChange(callback){
+    if(!isAvailable()) return function(){};
+    return window.FB.onAuthStateChanged(window.FB.auth, callback);
+  }
+
+  function getCurrentAuthUser(){
+    if(!isAvailable()) return null;
+    return window.FB.auth.currentUser;
+  }
+
+  function changePassword(newPassword){
+    if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
+    var user = window.FB.auth.currentUser;
+    if(!user) return Promise.reject(new Error("No hay usuario autenticado"));
+    return window.FB.updatePassword(user, newPassword);
+  }
+
+  function resetPassword(email){
+    if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
+    return window.FB.sendPasswordResetEmail(window.FB.auth, email);
+  }
+
+  /* ---------- Firestore: lectura ---------- */
+
+  function loadCollection(collectionName){
+    if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
+    var col = window.FB.collection(window.FB.db, collectionName);
+    return window.FB.getDocs(col).then(function(snapshot){
+      var items = [];
+      snapshot.forEach(function(doc){
+        items.push(Object.assign({_id: doc.id}, doc.data()));
+      });
+      return items;
+    });
+  }
+
+  function loadAgricultores(){
+    return loadCollection("agricultores");
+  }
+
+  function loadDespachos(){
+    return loadCollection("despachos");
+  }
+
+  function loadDevoluciones(){
+    return loadCollection("devoluciones");
+  }
+
+  /* ---------- Firestore: sincronización en tiempo real ---------- */
+
+  function subscribeCollection(collectionName, callback){
+    if(!isAvailable()) return function(){};
+    var col = window.FB.collection(window.FB.db, collectionName);
+    return window.FB.onSnapshot(col, function(snapshot){
+      var items = [];
+      snapshot.forEach(function(doc){
+        items.push(Object.assign({_id: doc.id}, doc.data()));
+      });
+      callback(items);
+    }, function(err){
+      console.error("[FB] Error en subscription " + collectionName + ":", err);
+    });
+  }
+
+  /* ---------- Firestore: escritura ---------- */
+
+  function addDocument(collectionName, data){
+    if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
+    var col = window.FB.collection(window.FB.db, collectionName);
+    return window.FB.addDoc(col, data).then(function(ref){ return ref.id; });
+  }
+
+  function setDocument(collectionName, docId, data){
+    if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
+    var d = window.FB.doc(window.FB.db, collectionName, docId);
+    return window.FB.setDoc(d, data);
+  }
+
+  function updateDocument(collectionName, docId, data){
+    if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
+    var d = window.FB.doc(window.FB.db, collectionName, docId);
+    return window.FB.updateDoc(d, data);
+  }
+
+  function deleteDocument(collectionName, docId){
+    if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
+    var d = window.FB.doc(window.FB.db, collectionName, docId);
+    return window.FB.deleteDoc(d);
+  }
+
+  /* ---------- Bulk import (para los 740 agricultores) ---------- */
+
+  async function bulkImport(collectionName, items){
+    if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
+    // Firestore permite máx 500 ops por batch, dividimos en chunks
+    var CHUNK_SIZE = 400;
+    var results = [];
+    for(var i=0; i<items.length; i+=CHUNK_SIZE){
+      var chunk = items.slice(i, i+CHUNK_SIZE);
+      var batch = window.FB.writeBatch(window.FB.db);
+      chunk.forEach(function(item){
+        var ref = window.FB.doc(window.FB.collection(window.FB.db, collectionName));
+        batch.set(ref, item);
+      });
+      await batch.commit();
+      results.push(chunk.length);
+      console.log("[FB] Importados " + Math.min(i+CHUNK_SIZE, items.length) + "/" + items.length);
+    }
+    return results.reduce(function(a,b){return a+b;}, 0);
+  }
+
+  return {
+    waitForFirebase: waitForFirebase,
+    isAvailable: isAvailable,
+    // Auth
+    signIn: signIn,
+    signOut: signOut,
+    onAuthChange: onAuthChange,
+    getCurrentAuthUser: getCurrentAuthUser,
+    changePassword: changePassword,
+    resetPassword: resetPassword,
+    // Firestore
+    loadAgricultores: loadAgricultores,
+    loadDespachos: loadDespachos,
+    loadDevoluciones: loadDevoluciones,
+    subscribeCollection: subscribeCollection,
+    addDocument: addDocument,
+    setDocument: setDocument,
+    updateDocument: updateDocument,
+    deleteDocument: deleteDocument,
+    bulkImport: bulkImport
+  };
+})();
+
+
+/* ============================================================
+   CONFIG: usuarios autorizados, correos corporativos, admin
+   ============================================================ */
+var APP_CONFIG = {
+  authorizedUsers: [
+    { name: "Esteban Melendez",     email: "logistica@spsc.cl",      admin: true  },
+    { name: "Winston Colvin",       email: "winston@spsc.cl",        admin: false },
+    { name: "Claudio Stockebrand",  email: "assistnorth@spsc.cl",    admin: false },
+    { name: "Ignacio Poblete L.",   email: "prodcsur@spsc.cl",       admin: false },
+    { name: "Rafael Reveco A.",     email: "rafael@spsc.cl",         admin: false },
+    { name: "Rafael Rebolledo",     email: "qcfield1@spsc.cl",       admin: false }
+  ],
+  recipientEmail: "logistica@spsc.cl",
+  resetCode: "1985"
+};
+
+/* ============================ i18n ============================ */
+var T = {
+  title:{es:"Programador de Despacho de Bandejas",en:"Seedling Tray Dispatch Scheduler"},
+  sub:{es:"South Pacific Seeds Chile · Invernaderos → Campo · Production Dept.",en:"South Pacific Seeds Chile · Greenhouses → Field · Production Dept."},
+  login_title:{es:"Ingreso de usuario",en:"User login"},
+  login_sub:{es:"Solo usuarios autorizados pueden acceder al programador.",en:"Only authorized users can access the scheduler."},
+  login_label:{es:"Usuario autorizado",en:"Authorized user"},
+  login_btn:{es:"Ingresar",en:"Sign in"},
+  login_hint:{es:"Ingrese su usuario para continuar.",en:"Enter your user to continue."},
+  login_unauth:{es:"Usuario no autorizado. Revise el nombre ingresado.",en:"Unauthorized user. Check the name entered."},
+  login_ok:{es:"Sesión iniciada como {U}. Correo corporativo: {E}.",en:"Signed in as {U}. Corporate email: {E}."},
+  login_okNoMail:{es:"Sesión iniciada como {U}. Falta configurar su correo corporativo.",en:"Signed in as {U}. Corporate email not configured."},
+  sdays:{es:"Días con despacho",en:"Days with dispatch"},
+  strays:{es:"Bandejas programadas",en:"Trays scheduled"},
+  strips:{es:"Viajes programados",en:"Trips scheduled"},
+  snext:{es:"Próximo despacho",en:"Next dispatch"},
+  cal:{es:"Calendario de despachos",en:"Dispatch calendar"},
+  lg_a:{es:"Disponible",en:"Available"},lg_p:{es:"Capacidad parcial",en:"Partial capacity"},
+  lg_f:{es:"Sin capacidad",en:"No capacity"},lg_t:{es:"Hoy",en:"Today"},
+  bcfg:{es:"Configuración",en:"Settings"},bfarm:{es:"Agricultores",en:"Growers"},
+  bcsv:{es:"📊 Exportar a Excel",en:"📊 Export to Excel"},bexp:{es:"Exportar JSON",en:"Export JSON"},
+  bimp:{es:"Importar",en:"Import"},bmail:{es:"📧 Enviar pendientes (Outlook)",en:"📧 Send pending (Outlook)"},
+  bmark:{es:"Marcar como enviados",en:"Mark as sent"},bprint:{es:"Imprimir",en:"Print"},
+  breset:{es:"Resetear todo",en:"Reset everything"},
+  foot:{es:"South Pacific Seeds Chile S.A. — Production Dept. · Herramienta interna de programación logística.",en:"South Pacific Seeds Chile S.A. — Production Dept. · Internal logistics scheduling tool."},
+  detail:{es:"Detalle",en:"Detail"},
+  emptySel:{es:"Selecciona un día en el calendario para ver su capacidad y programar despachos.",en:"Pick a day on the calendar to see its capacity and schedule dispatches."},
+  upcoming:{es:"Próximos despachos",en:"Upcoming dispatches"},
+  noUpcoming:{es:"Sin despachos programados.",en:"No dispatches scheduled."},
+  dayCap:{es:"Capacidad del día",en:"Day capacity"},
+  addDisp:{es:"Agregar despacho",en:"Add dispatch"},
+  grower:{es:"Agricultor",en:"Grower"},chooseGrower:{es:"— Selecciona agricultor —",en:"— Select grower —"},
+  addGrower:{es:"+ Nuevo agricultor…",en:"+ New grower…"},
+  trays:{es:"Bandejas solicitadas",en:"Trays requested"},
+  plants:{es:"Cantidad de plantas",en:"Plants quantity"},
+  truck:{es:"Camión",en:"Truck"},
+  tAuto:{es:"Automático (sugerido)",en:"Automatic (suggested)"},
+  tConvoy:{es:"Convoy (ambos camiones)",en:"Convoy (both trucks)"},
+  origin:{es:"Invernadero de origen",en:"Origin greenhouse"},
+  notes:{es:"Observaciones",en:"Notes"},
+  responsible:{es:"Responsable",en:"Responsible"},
+  contractNum:{es:"Número de contrato",en:"Contract number"},
+  spsCode:{es:"Código SPS",en:"SPS code"},
+  schedule:{es:"Agendar despacho",en:"Schedule dispatch"},
+  cancel:{es:"Cancelar",en:"Cancel"},
+  needGrower:{es:"Selecciona o crea un agricultor.",en:"Select or create a grower."},
+  needTrays:{es:"Ingresa una cantidad de bandejas válida (≥ 1).",en:"Enter a valid number of trays (≥ 1)."},
+  needContract:{es:"Ingrese el número de contrato y el código SPS.",en:"Enter the contract number and SPS code."},
+  d_phone:{es:"Teléfono",en:"Phone"},d_origin:{es:"Origen",en:"Origin"},
+  d_sector:{es:"Sector / Lote",en:"Sector / Plot"},d_notes:{es:"Observaciones",en:"Notes"},
+  openMaps:{es:"Google Maps",en:"Google Maps"},call:{es:"Llamar",en:"Call"},
+  edit:{es:"Editar",en:"Edit"},del:{es:"Eliminar",en:"Delete"},
+  confirmDel:{es:"¿Eliminar este despacho? Libera la capacidad del/los camión(es).",en:"Delete this dispatch? Frees the truck(s) capacity."},
+  trip:{es:"viaje",en:"trip"},trips:{es:"viajes",en:"trips"},
+  used:{es:"usado",en:"used"},free:{es:"libre",en:"free"},of:{es:"de",en:"of"},
+  min:{es:"min",en:"min"},km:{es:"km",en:"km"},oneWay:{es:"ida",en:"one-way"},
+  noTime:{es:"tiempo no verificable (faltan coordenadas o bodega)",en:"time not verifiable (missing coords or depot)"},
+  fitsSecond:{es:"alcanza otro viaje",en:"fits another trip"},
+  noSecond:{es:"sin tiempo para otro viaje",en:"no time for another trip"},
+  sgSingle:{es:"Sugerido: ",en:"Suggested: "},
+  sgConvoy:{es:"Sugerido: Convoy (ambos camiones a este destino)",en:"Suggested: Convoy (both trucks to this destination)"},
+  sgNone:{es:"No se puede agendar este pedido hoy",en:"This order cannot be scheduled today"},
+  sgCapBig:{es:"Supera la capacidad de un solo camión y del convoy (máx. {C}). Divide el pedido en otro día.",en:"Exceeds single truck and convoy capacity (max {C}). Split across another day."},
+  sgNoTruck:{es:"Ningún camión tiene capacidad y tiempo disponibles hoy. Prueba otro día.",en:"No truck has capacity and time available today. Try another day."},
+  sgNoTime:{es:"Capacidad alcanza, pero el tiempo de jornada no permite el viaje a este destino hoy.",en:"Capacity fits, but the workday time does not allow the trip today."},
+  warnCapManual:{es:"El camión elegido no alcanza para {N} bandejas (capacidad {C}).",en:"Chosen truck can't carry {N} trays (capacity {C})."},
+  warnTimeManual:{es:"Atención: el tiempo de jornada del camión podría no alcanzar para este viaje.",en:"Note: the truck's workday time may not be enough for this trip."},
+  estTo:{es:"≈ {KM} km · {M} min ida",en:"≈ {KM} km · {M} min one-way"},
+  fmh:{es:"Agricultores",en:"Growers"},
+  fName:{es:"Nombre del agricultor",en:"Grower name"},fPhone:{es:"Teléfono",en:"Phone"},
+  fAddress:{es:"Dirección",en:"Address"},
+  fMaps:{es:"Link de Google Maps o coordenadas (lat, long)",en:"Google Maps link or coordinates (lat, long)"},
+  fLat:{es:"Latitud",en:"Latitude"},fLng:{es:"Longitud",en:"Longitude"},
+  fSector:{es:"Sector / Lote / Referencia",en:"Sector / Plot / Reference"},
+  fManual:{es:"Tiempo de viaje real ida (min) — opcional, prevalece sobre la estimación",en:"Real one-way travel time (min) — optional, overrides the estimate"},
+  fGps:{es:"Usar mi ubicación GPS",en:"Use my GPS location"},
+  fSave:{es:"Guardar agricultor",en:"Save grower"},fNew:{es:"Agregar agricultor",en:"Add grower"},
+  fEdit:{es:"Editar",en:"Edit"},fDel:{es:"Eliminar",en:"Delete"},
+  fNone:{es:"Aún no hay agricultores. Agrega el primero abajo.",en:"No growers yet. Add the first below."},
+  fDelConfirm:{es:"¿Eliminar este agricultor?",en:"Delete this grower?"},
+  coordsParsed:{es:"Coordenadas detectadas del link.",en:"Coordinates detected from the link."},
+  coordsNone:{es:"No se detectaron coordenadas en el link (los links cortos no las contienen). Ingresa lat/long o usa GPS.",en:"No coordinates found in the link (short links don't contain them). Enter lat/lng or use GPS."},
+  gpsOk:{es:"Ubicación capturada.",en:"Location captured."},gpsFail:{es:"No se pudo obtener la ubicación.",en:"Could not get location."},
+  cmh:{es:"Configuración",en:"Settings"},
+  cDepot:{es:"Bodega / punto de carga",en:"Depot / loading point"},
+  cDepotName:{es:"Nombre",en:"Name"},
+  cSin:{es:"Factor de sinuosidad de ruta (1 = línea recta)",en:"Route sinuosity factor (1 = straight line)"},
+  cTrucks:{es:"Camiones",en:"Trucks"},cTName:{es:"Nombre",en:"Name"},cCap:{es:"Capacidad (bandejas)",en:"Capacity (trays)"},
+  cStart:{es:"Inicio jornada",en:"Day start"},cEnd:{es:"Fin jornada",en:"Day end"},
+  cSpeed:{es:"Velocidad prom. (km/h)",en:"Avg speed (km/h)"},
+  cLoad:{es:"Carga (min)",en:"Load (min)"},cUnload:{es:"Descarga (min)",en:"Unload (min)"},
+  cSave:{es:"Guardar configuración",en:"Save settings"},
+  cGpsDepot:{es:"GPS bodega",en:"Depot GPS"},
+  cNote:{es:"La estimación de distancia usa la fórmula de Haversine (línea recta) × sinuosidad ÷ velocidad. Es referencial; ingresa el tiempo real por agricultor cuando lo conozcas.",en:"Distance estimate uses Haversine (straight line) × sinuosity ÷ speed. It is referential; enter the real per-grower time when you know it."},
+  noPhone:{es:"sin teléfono",en:"no phone"},
+  storeOn:{es:"Datos guardados (sincronizado para el equipo)",en:"Data saved (synced for the team)"},
+  storeLocal:{es:"Datos guardados en este navegador",en:"Data saved in this browser"},
+  storeMem:{es:"Modo sesión: usa Exportar para no perder los datos",en:"Session mode: use Export to keep your data"},
+  importOk:{es:"Datos importados.",en:"Data imported."},importErr:{es:"Archivo no válido.",en:"Invalid file."},
+  trayUnit:{es:"bandejas",en:"trays"},
+  status:{es:"Estado",en:"Status"},
+  pending:{es:"Pendiente",en:"Pending"},sent:{es:"Enviado",en:"Sent"},
+  registeredBy:{es:"Registrado por",en:"Registered by"},
+  noPendingMail:{es:"Este usuario no tiene registros pendientes para enviar.",en:"This user has no pending records to send."},
+  noCorpEmail:{es:"El usuario {U} no tiene correo corporativo configurado.",en:"User {U} has no corporate email configured."},
+  confirmMarkSent:{es:"¿Confirma que envió {N} registro(s) por Outlook?",en:"Confirm you sent {N} record(s) via Outlook?"},
+  markedOk:{es:"Los registros fueron marcados como enviados.",en:"Records marked as sent."},
+  noRecordsCSV:{es:"No hay registros para exportar.",en:"No records to export."},
+  resetPrompt:{es:"Ingrese el código de seguridad:",en:"Enter the security code:"},
+  resetWrong:{es:"Código incorrecto.",en:"Wrong code."},
+  resetConfirm:{es:"¿Está seguro de borrar todos los despachos guardados?",en:"Sure you want to delete all saved dispatches?"},
+  resetDone:{es:"Todos los datos fueron eliminados.",en:"All data was deleted."},
+  resetOnlyAdmin:{es:"Solo {U} puede resetear todos los datos.",en:"Only {U} can reset all data."}
+};
+var lang="es";
+function L(k){return (T[k]&&T[k][lang])||k;}
+function fmtL(k,o){var s=L(k);for(var p in o)s=s.replace("{"+p+"}",o[p]);return s;}
+
+/* ============================ Storage layer ============================ */
+var STORAGE_KEY = "sps_dispatch_v3";
+var SESSION_USER_KEY = "sps_current_user";
+var hasWindowStorage = (typeof window !== "undefined" && window.storage && typeof window.storage.get === "function");
+var storageMode = "memory"; // "shared" | "local" | "memory"
+
+var memFallback = { data: null };
+
+function defaultConfig(){
+  return {
+    depot:{name:"Bodega SPS — San Vicente de T.T.", lat:-34.4389, lng:-71.0817},
+    sinuosity:1.4,
+    trucks:[
+      {id:"big",  name:"Camión Grande", capacity:500, dayStart:"08:00", dayEnd:"18:00", speed:55, loadMin:30, unloadMin:20},
+      {id:"small",name:"Camión Chico",  capacity:300, dayStart:"08:00", dayEnd:"18:00", speed:55, loadMin:30, unloadMin:20}
+    ]
+  };
+}
+
+var state = {
+  config: defaultConfig(),
+  farmers: [],
+  dispatches: {},
+  returns: []
+};
+var currentUser = "";
+var view = new Date(); view.setDate(1);
+var selDate = null;
+var editingFarmerId = null;
+
+async function loadState(){
+  // === PRIORIDAD 1: Firebase (si está disponible) ===
+  await FBApi.waitForFirebase();
+  if(FBApi.isAvailable()){
+    try{
+      console.log("[FB] Cargando datos desde Firebase Firestore...");
+
+      var results = await Promise.all([
+        FBApi.loadAgricultores().catch(function(e){console.warn("[FB] Sin agricultores:", e.message); return [];}),
+        FBApi.loadDespachos().catch(function(e){console.warn("[FB] Sin despachos:", e.message); return [];}),
+        FBApi.loadDevoluciones().catch(function(e){console.warn("[FB] Sin devoluciones:", e.message); return [];})
+      ]);
+
+      state.farmers = results[0].map(function(f){
+        return {
+          id: f._id,
+          name: f.name || "",
+          rut: f.rut || "",
+          contacto: f.contacto || "",
+          phone: f.phone || "",
+          sector: f.sector || "",
+          address: f.address || "",
+          comuna: f.comuna || "",
+          region: f.region || "",
+          mapsUrl: f.mapsUrl || "",
+          lat: f.lat != null ? +f.lat : null,
+          lng: f.lng != null ? +f.lng : null,
+          manualTravelMin: f.manualTravelMin != null ? +f.manualTravelMin : null
+        };
+      });
+
+      // Despachos vienen como array plano en Firestore, los agrupamos por fecha
+      state.dispatches = {};
+      results[1].forEach(function(d){
+        var date = d.date || "";
+        if(!date) return;
+        if(!state.dispatches[date]) state.dispatches[date] = [];
+        state.dispatches[date].push(Object.assign({id: d._id}, d));
+      });
+
+      state.returns = results[2].map(function(r){
+        return Object.assign({id: r._id}, r);
+      });
+
+      if(!state.config) state.config = defaultConfig();
+
+      storageMode = "firebase";
+      console.log("[FB] Cargado: " + state.farmers.length + " agricultores, "
+        + Object.keys(state.dispatches).length + " días con despachos, "
+        + state.returns.length + " devoluciones");
+
+      normalizeState();
+
+      // Suscripciones en tiempo real (los datos se actualizan si otro usuario cambia algo)
+      setupRealtimeSync();
+      return;
+    }catch(e){
+      console.error("[FB] Error cargando:", e);
+      alert("⚠️ Error conectando con Firebase:\n\n" + e.message + "\n\nLa app funcionará en modo local.");
+    }
+  }
+
+  // === PRIORIDAD 2: window.storage (compartido si está disponible) ===
+  if(hasWindowStorage){
+    try{
+      var r = await window.storage.get(STORAGE_KEY, true);
+      if(r && r.value){
+        state = JSON.parse(r.value);
+        storageMode = "shared";
+        normalizeState();
+        return;
+      }
+      storageMode = "shared";
+    }catch(e){ /* may not exist */ }
+  }
+  // === PRIORIDAD 3: localStorage ===
+  try{
+    var v = localStorage.getItem(STORAGE_KEY);
+    if(v){
+      state = JSON.parse(v);
+      storageMode = "local";
+      normalizeState();
+      return;
+    }
+    storageMode = "local";
+  }catch(e){
+    storageMode = "memory";
+  }
+  normalizeState();
+}
+
+/* Sincronización en tiempo real: cuando otro usuario cambia datos, actualizamos la vista */
+var _realtimeUnsubs = [];
+function setupRealtimeSync(){
+  // Limpia suscripciones anteriores
+  _realtimeUnsubs.forEach(function(u){try{u();}catch(e){}});
+  _realtimeUnsubs = [];
+
+  _realtimeUnsubs.push(FBApi.subscribeCollection("despachos", function(items){
+    var newDispatches = {};
+    items.forEach(function(d){
+      var date = d.date || "";
+      if(!date) return;
+      if(!newDispatches[date]) newDispatches[date] = [];
+      newDispatches[date].push(Object.assign({id: d._id}, d));
+    });
+    state.dispatches = newDispatches;
+    normalizeState();
+    if(currentUser) renderAll();
+  }));
+
+  _realtimeUnsubs.push(FBApi.subscribeCollection("devoluciones", function(items){
+    state.returns = items.map(function(r){
+      return Object.assign({id: r._id}, r);
+    });
+    if(currentUser) renderAll();
+  }));
+}
+
+async function saveState(){
+  // === Firebase: NO usar saveState directamente.
+  // Las funciones que modifican datos (addDispatch, saveFarmer, etc.)
+  // llaman directamente a las funciones fbSave...() de Firebase.
+  // saveState() aquí solo sirve para modo local (localStorage). ===
+  if(storageMode === "firebase"){
+    // No hace nada - las escrituras se hacen directo en Firebase
+    // desde las funciones específicas (fbAddDispatch, etc.)
+    return;
+  }
+
+  var payload = JSON.stringify(state);
+  if(hasWindowStorage){
+    try{
+      await window.storage.set(STORAGE_KEY, payload, true);
+      storageMode = "shared";
+      updateStoreNote();
+      return;
+    }catch(e){ /* fall through */ }
+  }
+  try{
+    localStorage.setItem(STORAGE_KEY, payload);
+    storageMode = "local";
+  }catch(e){
+    memFallback.data = payload;
+    storageMode = "memory";
+  }
+  updateStoreNote();
+}
+
+function normalizeState(){
+  if(!state.config) state.config = defaultConfig();
+  if(!state.config.trucks) state.config.trucks = defaultConfig().trucks;
+  if(!state.farmers) state.farmers = [];
+  if(!state.dispatches) state.dispatches = {};
+  if(!state.returns) state.returns = [];
+  // Migrate legacy single-object dispatches to arrays
+  for(var k in state.dispatches){
+    if(!Array.isArray(state.dispatches[k])){
+      var o = state.dispatches[k];
+      o.id = o.id || uid();
+      o.truckIds = o.truckIds || [bestSingleByCap(o.trays)];
+      state.dispatches[k] = [o];
+    }
+    // Ensure each dispatch has required fields
+    state.dispatches[k].forEach(function(d){
+      if(!d.id) d.id = uid();
+      if(!d.truckIds) d.truckIds = [];
+      if(!d.status) d.status = "pending";
+      if(!d.user) d.user = "—";
+      if(!d.contractNumber) d.contractNumber = d.contractNumber || "";
+      if(!d.spsCode) d.spsCode = d.spsCode || "";
+      if(!d.responsible) d.responsible = d.responsible || "";
+      if(!d.address) d.address = d.address || "";
+      if(d.plants == null) d.plants = 0;
+      if(d.plantasPorHa == null) d.plantasPorHa = 0;
+      if(d.gender == null) d.gender = "";
+      if(d.superficieHa == null) d.superficieHa = 0;
+      if(d.germinacion == null) d.germinacion = 0;
+      if(d.fieldman == null) d.fieldman = "";
+      if(d.prioridad == null) d.prioridad = 1;
+      if(d.op == null) d.op = "";
+    });
+  }
+}
+
+function updateStoreNote(){
+  var el = document.getElementById("storenote");
+  if(!el) return;
+  if(storageMode === "firebase"){
+    el.innerHTML = '<span class="dot on" style="background:#f2c94c"></span>'
+      + '<strong style="color:#0057b7">🔥 Firebase</strong> · Datos sincronizados en tiempo real';
+  } else if(storageMode === "sharepoint"){
+    el.innerHTML = '<span class="dot on" style="background:#0078d4"></span>'
+      + '<strong style="color:#14366E">☁ SharePoint</strong> · Datos en vivo';
+  } else if(storageMode === "shared"){
+    el.innerHTML = '<span class="dot on"></span>' + L("storeOn");
+  } else if(storageMode === "local"){
+    el.innerHTML = '<span class="dot on"></span>' + L("storeLocal");
+  } else {
+    el.innerHTML = '<span class="dot off"></span>' + L("storeMem");
+  }
+}
+
+/* ============================ Helpers ============================ */
+function todayStr(){return iso(new Date());}
+function iso(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function parseISO(s){var p=s.split("-");return new Date(+p[0],+p[1]-1,+p[2]);}
+function uid(){return "f"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+function normalizeUser(v){return String(v||"").trim().replace(/\s+/g," ").toLocaleLowerCase("es");}
+
+/* Quita tildes/acentos para búsqueda más tolerante */
+function stripAccents(s){
+  return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+}
+
+/* Busca un usuario en APP_CONFIG.authorizedUsers por:
+   - correo exacto o parcial (ej: "logistica" → logistica@spsc.cl)
+   - nombre completo o parcial (ej: "Esteban", "melendez", "Rafael R")
+   Devuelve:
+     { match: userObj }  → única coincidencia
+     { multi: [users] }  → varias coincidencias (ambigüedad)
+     { none: true }      → sin coincidencias */
+function findAuthorizedUser(input){
+  if(!input) return {none:true};
+  var query = stripAccents(input).toLowerCase().trim();
+  if(query.length < 2) return {none:true};
+
+  var matches = APP_CONFIG.authorizedUsers.filter(function(u){
+    var name  = stripAccents(u.name).toLowerCase();
+    var email = (u.email||"").toLowerCase();
+    // Match si el input está contenido en el nombre o en el correo
+    return name.indexOf(query) >= 0 || email.indexOf(query) >= 0;
+  });
+
+  if(matches.length === 0) return {none:true};
+  if(matches.length === 1) return {match: matches[0]};
+  return {multi: matches};
+}
+
+function canonicalUser(v){
+  var r = findAuthorizedUser(v);
+  return r.match ? r.match.name : "";
+}
+
+function corporateEmail(u){
+  if(!u) return "";
+  var query = normalizeUser(u);
+  for(var i=0;i<APP_CONFIG.authorizedUsers.length;i++){
+    if(normalizeUser(APP_CONFIG.authorizedUsers[i].name) === query){
+      return APP_CONFIG.authorizedUsers[i].email || "";
+    }
+  }
+  return "";
+}
+
+function isAdmin(){
+  if(!currentUser) return false;
+  var query = normalizeUser(currentUser);
+  for(var i=0;i<APP_CONFIG.authorizedUsers.length;i++){
+    if(normalizeUser(APP_CONFIG.authorizedUsers[i].name) === query){
+      return !!APP_CONFIG.authorizedUsers[i].admin;
+    }
+  }
+  return false;
+}
+
+/* ============================ Login / Logout ============================ */
+function tryRestoreSession(){
+  try{
+    var u = sessionStorage.getItem(SESSION_USER_KEY);
+    if(u){
+      var c = canonicalUser(u);
+      if(c){ currentUser = c; showApp(); return true; }
+    }
+  }catch(e){}
+  return false;
+}
+
+function login(){
+  var emailInput = document.getElementById("usernameInput");
+  var passwordInput = document.getElementById("passwordInput");
+  var stat = document.getElementById("loginStatus");
+  var email = (emailInput.value||"").trim().toLowerCase();
+  var password = passwordInput.value || "";
+
+  if(!email){
+    stat.className = "stat err";
+    stat.textContent = "Ingrese su correo corporativo.";
+    emailInput.focus();
+    return;
+  }
+  if(!password){
+    stat.className = "stat err";
+    stat.textContent = "Ingrese su contraseña.";
+    passwordInput.focus();
+    return;
+  }
+
+  // Buscar usuario en la lista autorizada
+  var authUser = APP_CONFIG.authorizedUsers.filter(function(u){
+    return (u.email||"").toLowerCase() === email;
+  })[0];
+
+  if(!authUser){
+    stat.className = "stat err";
+    stat.textContent = "Este correo no está autorizado. Verifique con el administrador.";
+    emailInput.select();
+    return;
+  }
+
+  // Autenticar con Firebase
+  stat.className = "stat";
+  stat.textContent = "Verificando credenciales...";
+
+  if(!FBApi.isAvailable()){
+    stat.className = "stat err";
+    stat.textContent = "Firebase no está disponible. Verifique su conexión a internet.";
+    return;
+  }
+
+  FBApi.signIn(email, password)
+    .then(function(user){
+      currentUser = authUser.name;
+      try{ sessionStorage.setItem(SESSION_USER_KEY, authUser.name); }catch(e){}
+      stat.className = "stat ok";
+      stat.textContent = fmtL("login_ok", {U: authUser.name, E: email});
+      setTimeout(function(){
+        passwordInput.value = "";
+        showApp();
+      }, 300);
+    })
+    .catch(function(err){
+      stat.className = "stat err";
+      var msg = "Error al iniciar sesión.";
+      if(err.code === "auth/invalid-credential" || err.code === "auth/wrong-password"){
+        msg = "Contraseña incorrecta.";
+      } else if(err.code === "auth/user-not-found"){
+        msg = "Este usuario no está registrado en Firebase.";
+      } else if(err.code === "auth/too-many-requests"){
+        msg = "Demasiados intentos. Intente más tarde.";
+      } else if(err.code === "auth/network-request-failed"){
+        msg = "Sin conexión a internet.";
+      }
+      stat.textContent = msg;
+      passwordInput.select();
+      console.error("Login error:", err);
+    });
+}
+
+function promptResetPassword(evt){
+  if(evt) evt.preventDefault();
+  var email = (document.getElementById("usernameInput").value||"").trim().toLowerCase();
+  if(!email){
+    alert("Escriba su correo corporativo primero y luego presione '¿Olvidaste tu contraseña?'.");
+    document.getElementById("usernameInput").focus();
+    return;
+  }
+  var authUser = APP_CONFIG.authorizedUsers.filter(function(u){
+    return (u.email||"").toLowerCase() === email;
+  })[0];
+  if(!authUser){
+    alert("Este correo no está autorizado.");
+    return;
+  }
+  if(!confirm("¿Enviar correo de recuperación de contraseña a " + email + "?")) return;
+
+  FBApi.resetPassword(email)
+    .then(function(){
+      alert("✓ Correo de recuperación enviado a " + email + ".\n\nRevise su bandeja de entrada (o spam) y siga las instrucciones.");
+    })
+    .catch(function(err){
+      alert("Error enviando correo de recuperación:\n" + err.message);
+    });
+}
+
+function showApp(){
+  document.getElementById("loginView").classList.add("hidden");
+  document.getElementById("appView").classList.remove("hidden");
+  document.getElementById("userPill").classList.remove("hidden");
+  document.getElementById("logoutBtn").classList.remove("hidden");
+  document.getElementById("userPill").textContent = "👤 " + currentUser;
+  document.getElementById("resetBtn").classList.toggle("hidden", !isAdmin());
+  renderAll();
+}
+
+function logout(){
+  // Cerrar sesión en Firebase
+  if(FBApi.isAvailable()){
+    FBApi.signOut().catch(function(err){console.error("Signout error:", err);});
+  }
+  currentUser = "";
+  selDate = null;
+  try{ sessionStorage.removeItem(SESSION_USER_KEY); }catch(e){}
+  document.getElementById("loginView").classList.remove("hidden");
+  document.getElementById("appView").classList.add("hidden");
+  document.getElementById("userPill").classList.add("hidden");
+  document.getElementById("logoutBtn").classList.add("hidden");
+  document.getElementById("usernameInput").value = "";
+  var pi = document.getElementById("passwordInput"); if(pi) pi.value = "";
+  document.getElementById("loginStatus").textContent = "";
+  document.getElementById("loginStatus").className = "stat";
+  document.getElementById("usernameInput").focus();
+}
+
+/* ============================ Geo & time logic ============================ */
+function truckById(id){return state.config.trucks.filter(function(t){return t.id===id;})[0]||null;}
+function bestSingleByCap(n){
+  var ts = state.config.trucks.slice().sort(function(a,b){return a.capacity-b.capacity;});
+  for(var i=0;i<ts.length;i++) if(ts[i].capacity>=n) return ts[i].id;
+  return ts[ts.length-1].id;
+}
+function maxConvoy(){return state.config.trucks.reduce(function(s,t){return s+(+t.capacity||0);},0);}
+function workdayMin(t){
+  var a=t.dayStart.split(":"), b=t.dayEnd.split(":");
+  return (b[0]*60 + +b[1]) - (a[0]*60 + +a[1]);
+}
+function haversineKm(a,b){
+  var R=6371,dLat=(b.lat-a.lat)*Math.PI/180,dLng=(b.lng-a.lng)*Math.PI/180;
+  var s=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(s),Math.sqrt(1-s));
+}
+function distKm(f){
+  if(!f||f.lat==null||f.lng==null) return null;
+  var d=state.config.depot;
+  if(d.lat==null||d.lng==null) return null;
+  return haversineKm(d,{lat:+f.lat,lng:+f.lng})*(+state.config.sinuosity||1);
+}
+function travelMin(f){
+  if(f && f.manualTravelMin!=null && f.manualTravelMin!=="") return +f.manualTravelMin;
+  var km=distKm(f); if(km==null) return null;
+  var t=truckById("big")||state.config.trucks[0];
+  return Math.round(km/(+t.speed||55)*60);
+}
+function tripCost(f,t){
+  var tv=travelMin(f);
+  if(tv==null) return null;
+  return (+t.loadMin||0)+2*tv+(+t.unloadMin||0);
+}
+function usedMin(arr,truckId){
+  var s=0;
+  (arr||[]).forEach(function(d){
+    if(d.truckIds.indexOf(truckId)>=0){
+      var f=farmerById(d.farmerId);
+      var t=truckById(truckId);
+      var c=tripCost(f,t);
+      if(c!=null) s+=c;
+    }
+  });
+  return s;
+}
+function remMin(arr,truckId){var t=truckById(truckId);return workdayMin(t)-usedMin(arr,truckId);}
+function tripCountToday(arr,truckId){return (arr||[]).filter(function(d){return d.truckIds.indexOf(truckId)>=0;}).length;}
+function farmerById(id){return state.farmers.filter(function(f){return f.id===id;})[0]||null;}
+
+function suggest(date,trays,farmerId){
+  var arr = state.dispatches[date]||[], f = farmerById(farmerId);
+  var tv = travelMin(f), km = distKm(f);
+  var res = {mode:"none",truckIds:[],travelMin:tv,km:km,reasons:[]};
+  if(trays > maxConvoy()){
+    res.reasons.push(fmtL("sgCapBig",{C:maxConvoy()}));
+    return res;
+  }
+  var singles = state.config.trucks.slice().sort(function(a,b){return a.capacity-b.capacity;});
+  for(var i=0;i<singles.length;i++){
+    var t = singles[i];
+    if(t.capacity>=trays){
+      var c = tripCost(f,t);
+      var fits = (c==null) || (remMin(arr,t.id)>=c);
+      if(fits){res.mode="single";res.truckIds=[t.id];return res;}
+    }
+  }
+  var capOk = singles.some(function(t){return t.capacity>=trays;});
+  if(capOk) res.reasons.push(L("sgNoTime"));
+  if(trays<=maxConvoy()){
+    var allFit = state.config.trucks.every(function(t){
+      var c=tripCost(f,t);
+      return (c==null) || (remMin(arr,t.id)>=c);
+    });
+    if(allFit){res.mode="convoy";res.truckIds=state.config.trucks.map(function(t){return t.id;});res.reasons=[];return res;}
+  }
+  if(!res.reasons.length) res.reasons.push(L("sgNoTruck"));
+  return res;
+}
+
+/* ============================ Rendering ============================ */
+function renderAll(){
+  applyStatic();
+  renderStats();
+  renderCalendar();
+  renderPanel();
+  updateStoreNote();
+}
+
+function applyStatic(){
+  document.documentElement.lang = lang;
+  var m = {
+    t_title:"title", t_sub:"sub",
+    t_login_title:"login_title", t_login_sub:"login_sub", t_login_label:"login_label",
+    t_sdays:"sdays", t_strays:"strays", t_strips:"strips", t_snext:"snext",
+    t_cal:"cal", t_lg_a:"lg_a", t_lg_p:"lg_p", t_lg_f:"lg_f", t_lg_t:"lg_t",
+    t_bcfg:"bcfg", t_bfarm:"bfarm", t_bcsv:"bcsv", t_bexp:"bexp", t_bimp:"bimp",
+    t_bmail:"bmail", t_bmark:"bmark", t_bprint:"bprint",
+    t_fmh:"fmh", t_cmh:"cmh", t_foot:"foot"
+  };
+  for(var id in m){
+    var el = document.getElementById(id);
+    if(el) el.textContent = L(m[id]);
+  }
+  var loginBtn = document.getElementById("loginBtn"); if(loginBtn) loginBtn.textContent = L("login_btn");
+  var resetBtn = document.getElementById("resetBtn"); if(resetBtn) resetBtn.textContent = L("breset");
+  var logoutBtn = document.getElementById("logoutBtn"); if(logoutBtn) logoutBtn.textContent = lang==="es"?"Cerrar sesión":"Sign out";
+  document.getElementById("lg_es").classList.toggle("on", lang==="es");
+  document.getElementById("lg_en").classList.toggle("on", lang==="en");
+}
+
+function fmtNum(n){return new Intl.NumberFormat(lang==="es"?"es-CL":"en-US").format(n);}
+function monthName(d){return d.toLocaleDateString(lang==="es"?"es-CL":"en-US",{month:"long",year:"numeric"});}
+function dayLong(s){return parseISO(s).toLocaleDateString(lang==="es"?"es-CL":"en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"});}
+function dayTrays(arr){return (arr||[]).reduce(function(s,d){return s+(+d.trays||0);},0);}
+
+function renderStats(){
+  var keys = Object.keys(state.dispatches).filter(function(k){return (state.dispatches[k]||[]).length;});
+  var trays=0, trips=0;
+  keys.forEach(function(k){
+    state.dispatches[k].forEach(function(d){
+      trays += (+d.trays||0);
+      trips += d.truckIds.length;
+    });
+  });
+  document.getElementById("s_days").textContent = keys.length;
+  document.getElementById("s_trays").textContent = fmtNum(trays);
+  document.getElementById("s_trips").textContent = trips;
+  var fut = keys.filter(function(k){return k>=todayStr();}).sort();
+  document.getElementById("s_next").textContent = fut.length
+    ? parseISO(fut[0]).toLocaleDateString(lang==="es"?"es-CL":"en-US",{day:"numeric",month:"short"})
+    : "—";
+}
+
+function dayClass(arr){
+  if(!arr||!arr.length) return "free";
+  var full = state.config.trucks.every(function(t){
+    return remMin(arr,t.id) < ((+t.loadMin||0)+(+t.unloadMin||0));
+  });
+  return full ? "full" : "partial";
+}
+
+function renderCalendar(){
+  document.getElementById("mlabel").textContent = monthName(view);
+  var dows = lang==="es" ? ["lun","mar","mié","jue","vie","sáb","dom"] : ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  document.getElementById("dow").innerHTML = dows.map(function(d){return"<div>"+d+"</div>";}).join("");
+  var y=view.getFullYear(), m=view.getMonth(), first=new Date(y,m,1), sd=(first.getDay()+6)%7;
+  var dim = new Date(y,m+1,0).getDate(), tStr = todayStr(), cells=[];
+  for(var i=0;i<sd;i++) cells.push("<div></div>");
+  for(var d=1; d<=dim; d++){
+    var ds = y+"-"+String(m+1).padStart(2,"0")+"-"+String(d).padStart(2,"0");
+    var arr = state.dispatches[ds]||[], dc = dayClass(arr), past = ds < tStr, cls="day";
+    if(dc==="partial") cls+=" partial";
+    else if(dc==="full") cls+=" full";
+    else if(past) cls+=" muted";
+    if(ds===tStr) cls+=" today";
+    if(ds===selDate) cls+=" sel";
+    var inner = '<span class="dnum">'+d+'</span>';
+    if(arr.length){
+      var dots = state.config.trucks.map(function(t){
+        var used = tripCountToday(arr,t.id)>0;
+        var full = remMin(arr,t.id) < ((+t.loadMin||0)+(+t.unloadMin||0));
+        return '<i class="cdot'+(full?" fullt":(used?" used":""))+'"></i>';
+      }).join("");
+      inner += '<span class="cellfoot"><span class="ctrays">'+fmtNum(dayTrays(arr))+'</span><span class="cdots">'+dots+'</span></span>';
+    }
+    var clickable = arr.length || !past;
+    cells.push('<div class="'+cls+'"' + (clickable?' onclick="pickDay(\''+ds+'\')"':'') + '>'+inner+'</div>');
+  }
+  document.getElementById("days").innerHTML = cells.join("");
+}
+
+function moveMonth(n){view.setMonth(view.getMonth()+n);renderCalendar();}
+function pickDay(ds){selDate=ds;renderCalendar();renderPanel();}
+
+function renderPanel(){
+  var panel = document.getElementById("panel"), title = document.getElementById("panelTitle");
+  if(!selDate){
+    title.textContent = L("upcoming");
+    panel.innerHTML = renderUpcoming();
+    return;
+  }
+  title.textContent = L("dayCap");
+  panel.innerHTML = renderDay(selDate);
+  fillGrowerSelect();
+  updateSuggestion();
+}
+
+function renderUpcoming(){
+  var keys = Object.keys(state.dispatches).filter(function(k){return (state.dispatches[k]||[]).length && k>=todayStr();}).sort();
+  if(!keys.length) return '<div class="empty">'+traySvgBig()+'<div>'+L("emptySel")+'</div></div>';
+  var html = '<div class="dlist">';
+  keys.forEach(function(k){
+    var dt = parseISO(k);
+    html += '<div class="drow" onclick="pickDay(\''+k+'\')" style="cursor:pointer">'
+      + '<div class="d1"><div class="dname">'+dt.toLocaleDateString(lang==="es"?"es-CL":"en-US",{weekday:"short",day:"numeric",month:"short"})+'</div>'
+      + '<div class="dtrays">'+fmtNum(dayTrays(state.dispatches[k]))+' '+L("trayUnit")+'</div></div>'
+      + '<div class="d2">'+state.dispatches[k].map(function(d){
+          var f = farmerById(d.farmerId);
+          return esc(f?f.name:(d.farmerName||"—"));
+        }).join(" · ")+'</div></div>';
+  });
+  return html + '</div>';
+}
+
+function truckTag(ids){
+  if(ids.length>1) return '<span class="tag convoy">'+truckSvg()+'Convoy</span>';
+  var t = truckById(ids[0]);
+  return '<span class="tag">'+truckSvg()+esc(t?t.name:ids[0])+'</span>';
+}
+
+function statusTag(status){
+  if(status==="sent") return '<span class="tag sent">✓ '+L("sent")+'</span>';
+  return '<span class="tag pending">● '+L("pending")+'</span>';
+}
+
+function renderDay(ds){
+  var arr = state.dispatches[ds]||[];
+  var html = '<div class="seldate">'+dayLong(ds)+'</div>';
+  // Truck utilization bars
+  html += '<div class="trucks">';
+  state.config.trucks.forEach(function(t){
+    var used = usedMin(arr,t.id), wd = workdayMin(t), rem = wd-used, pct = Math.min(100,Math.round(used/wd*100));
+    var nt = tripCountToday(arr,t.id);
+    html += '<div class="tk"><div class="tkhead"><span class="tkname">'+esc(t.name)+'</span>'
+      + '<span class="tkcap">'+fmtNum(t.capacity)+' '+L("trayUnit")+'</span></div>'
+      + '<div class="bar"><i class="'+(pct>=85?"hot":"")+'" style="width:'+pct+'%"></i></div>'
+      + '<div class="tkmeta"><span>'+nt+' '+(nt===1?L("trip"):L("trips"))+' · '+used+'/'+wd+' '+L("min")+'</span>'
+      + '<span>'+Math.max(0,rem)+' '+L("min")+' '+L("free")+'</span></div></div>';
+  });
+  html += '</div>';
+  // Dispatches list
+  if(arr.length){
+    html += '<div class="dlist">';
+    arr.forEach(function(d){
+      var f = farmerById(d.farmerId) || {name:d.farmerName||"—", phone:d.phone||"", address:d.address||""};
+      var href = mapsHref(f);
+      var tv = travelMin(f);
+      var germPct = d.germinacion ? (d.germinacion*100).toFixed(0)+"%" : "";
+      var typeLabel = d.gender === "F" ? "Female" : (d.gender === "M" ? "Male" : "");
+      html += '<div class="drow"><div class="d1"><div class="dname">'+esc(f.name)+(typeLabel?' <span style="font-size:11px;color:var(--muted);font-weight:600">('+typeLabel+')</span>':'')+'</div>'
+        + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+statusTag(d.status)+'<div class="dtrays">'+fmtNum(d.trays)+' bandejas</div></div></div>'
+        + '<div class="d2">'+truckTag(d.truckIds)
+        + (d.plants?'<span><strong>'+fmtNum(d.plants)+'</strong> plantas</span>':'')
+        + (germPct?'<span>Germ: <strong>'+germPct+'</strong></span>':'')
+        + (d.superficieHa?'<span>'+d.superficieHa+' HA</span>':'')
+        + (d.fieldman?'<span>Fieldman: '+esc(d.fieldman)+'</span>':'')
+        + (d.prioridad?'<span>Prio: '+d.prioridad+'</span>':'')
+        + (tv!=null?'<span>'+tv+' '+L("min")+' '+L("oneWay")+'</span>':'')
+        + '</div>'
+        + '<div class="d2">'
+        + (d.contractNumber?'<span><strong>Contrato:</strong> '+esc(d.contractNumber)+'</span>':'')
+        + (d.spsCode?'<span><strong>SPS:</strong> '+esc(d.spsCode)+'</span>':'')
+        + (d.plantasPorHa?'<span><strong>Plantas/HA:</strong> '+fmtNum(d.plantasPorHa)+'</span>':'')
+        + (d.origin?'<span><strong>Origen:</strong> '+esc(d.origin)+'</span>':'')
+        + '<span><strong>Por:</strong> '+esc(d.user||"—")+'</span>'
+        + '</div>'
+        + (d.responsible?'<div class="d2 dark">'+L("responsible")+': '+esc(d.responsible)+'</div>':'')
+        + (d.notes?'<div class="d2 dark">Obs: '+esc(d.notes)+'</div>':'')
+        + '<div class="d3">'
+        + (f.phone?'<a href="tel:'+esc(f.phone.replace(/\s/g,""))+'">'+phoneSvg()+L("call")+'</a>':'')
+        + (href?'<a href="'+esc(href)+'" target="_blank" rel="noopener">'+pinSvg()+L("openMaps")+'</a>':'')
+        + (canEditDispatch(d) ? '<span class="acts">'
+            + '<button class="btn ghost sm" onclick="editDispatch(\''+ds+'\',\''+d.id+'\')">'+L("edit")+'</button>'
+            + '<button class="btn danger sm" onclick="delDispatch(\''+ds+'\',\''+d.id+'\')">'+L("del")+'</button>'
+            + '</span>' : '')
+        + '</div></div>';
+    });
+    html += '</div>';
+  }
+  // Add dispatch form
+  html += '<div class="sec"><h4>'+L("addDisp")+'</h4>'
+    + '<label class="fl">'+L("grower")+'</label><select id="f_grower" onchange="growerSelChange();updateSuggestion()"></select>'
+    + '<div class="row3">'
+    + '<div><label class="fl">'+L("trays")+'</label><input id="f_trays" type="number" min="1" step="1" inputmode="numeric" oninput="updateSuggestion()"></div>'
+    + '<div><label class="fl">'+L("plants")+'</label><input id="f_plants" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>'
+    + '<div><label class="fl">Plantas / HA</label><input id="f_plantasHa" type="number" min="0" step="1" inputmode="numeric" placeholder="ej: 31111"></div>'
+    + '</div>'
+    + '<div class="row3">'
+    + '<div><label class="fl">Tipo</label><select id="f_gender"><option value="">— Ninguno —</option><option value="F">Female</option><option value="M">Male</option></select></div>'
+    + '<div><label class="fl">Superficie (HA)</label><input id="f_superficie" type="number" min="0" step="0.01" placeholder="ej: 2.3"></div>'
+    + '<div><label class="fl">Germinación %</label><input id="f_germ" type="number" min="0" max="100" step="0.1" placeholder="ej: 92"></div>'
+    + '</div>'
+    + '<div class="row3">'
+    + '<div><label class="fl">Fieldman</label><input id="f_fieldman" type="text" maxlength="20" placeholder="ej: RRA, RRG, IPL"></div>'
+    + '<div><label class="fl">Prioridad</label><input id="f_prioridad" type="number" min="1" step="1" value="1"></div>'
+    + '<div><label class="fl">OP</label><input id="f_op" type="text" maxlength="40" placeholder="opcional"></div>'
+    + '</div>'
+    + '<label class="fl">'+L("truck")+'</label><select id="f_truck"><option value="auto">'+L("tAuto")+'</option>'
+    + state.config.trucks.map(function(t){return '<option value="'+t.id+'">'+esc(t.name)+' ('+t.capacity+')</option>';}).join("")
+    + '<option value="convoy">'+L("tConvoy")+' ('+maxConvoy()+')</option></select>'
+    + '<div id="sgbox"></div>'
+    + '<div class="row2">'
+    + '<div><label class="fl">'+L("contractNum")+'</label><input id="f_contract" type="text" maxlength="60" placeholder="N° Contrato Invernadero"></div>'
+    + '<div><label class="fl">'+L("spsCode")+'</label><input id="f_sps" type="text" maxlength="60" placeholder="ej: CBO2376"></div>'
+    + '</div>'
+    + '<div class="row2">'
+    + '<div><label class="fl">'+L("responsible")+'</label><input id="f_resp" type="text" maxlength="100"></div>'
+    + '<div><label class="fl">'+L("origin")+'</label><input id="f_origin" list="ghouses"><datalist id="ghouses">'+ghouseOpts()+'</datalist></div>'
+    + '</div>'
+    + '<label class="fl">Observaciones</label><input id="f_notes" placeholder="Notas del despacho">'
+    + '<button class="btn primary" style="width:100%;margin-top:14px" onclick="addDispatch()">'+L("schedule")+'</button></div>';
+  return html;
+}
+
+function canEditDispatch(d){
+  if(!currentUser) return false;
+  return isAdmin() || normalizeUser(d.user) === normalizeUser(currentUser);
+}
+
+function ghouseOpts(){
+  var s={};
+  for(var k in state.dispatches)
+    (state.dispatches[k]||[]).forEach(function(d){if(d.origin) s[d.origin]=1;});
+  return Object.keys(s).map(function(o){return '<option value="'+esc(o)+'">';}).join("");
+}
+
+function fillGrowerSelect(){
+  var sel = document.getElementById("f_grower");
+  if(!sel) return;
+  var h = '<option value="">'+L("chooseGrower")+'</option>';
+  state.farmers.forEach(function(f){h += '<option value="'+f.id+'">'+esc(f.name)+'</option>';});
+  h += '<option value="__new">'+L("addGrower")+'</option>';
+  sel.innerHTML = h;
+}
+
+function growerSelChange(){
+  var sel = document.getElementById("f_grower");
+  if(sel.value==="__new"){sel.value=""; openFarmers(true);}
+}
+
+function updateSuggestion(){
+  var box = document.getElementById("sgbox");
+  if(!box) return;
+  var gid = document.getElementById("f_grower").value;
+  var trays = parseInt(document.getElementById("f_trays").value,10);
+  if(!gid || !trays || trays<1){box.innerHTML=""; return;}
+  var f = farmerById(gid), s = suggest(selDate,trays,gid);
+  var est = (s.km!=null) ? fmtL("estTo",{KM:s.km.toFixed(1),M:s.travelMin}) : L("noTime");
+  if(s.mode==="single"){
+    var t = truckById(s.truckIds[0]);
+    var arr = state.dispatches[selDate]||[];
+    var c = tripCost(f,t);
+    var rem = remMin(arr,t.id);
+    var after = (c!=null)?(rem-c):null;
+    var second = (c!=null) ? (after>=c?L("fitsSecond"):L("noSecond")) : L("noTime");
+    box.innerHTML = '<div class="sg ok"><div class="sgt">'+okSvg()+L("sgSingle")+esc(t.name)+'</div><ul><li>'+est+'</li><li>'+second+'</li></ul></div>';
+  } else if(s.mode==="convoy"){
+    box.innerHTML = '<div class="sg ok"><div class="sgt">'+okSvg()+L("sgConvoy")+'</div><ul><li>'+est+'</li></ul></div>';
+  } else {
+    box.innerHTML = '<div class="sg bad"><div class="sgt">'+warnSvg()+L("sgNone")+'</div><ul>'+s.reasons.map(function(r){return '<li>'+r+'</li>';}).join("")+'</ul></div>';
+  }
+}
+
+function addDispatch(){
+  var gid = document.getElementById("f_grower").value;
+  var trays = parseInt(document.getElementById("f_trays").value,10);
+  var plants = parseInt(document.getElementById("f_plants").value,10) || 0;
+  var plantasHa = parseInt(document.getElementById("f_plantasHa").value,10) || 0;
+  var gender = document.getElementById("f_gender").value || "";
+  var superficie = parseFloat(document.getElementById("f_superficie").value) || 0;
+  var germPct = parseFloat(document.getElementById("f_germ").value);
+  var germinacion = isNaN(germPct) ? 0 : (germPct / 100);  // stored as 0-1 like Excel
+  var fieldman = (document.getElementById("f_fieldman").value||"").trim();
+  var prioridad = parseInt(document.getElementById("f_prioridad").value,10) || 1;
+  var op = (document.getElementById("f_op").value||"").trim();
+  var pick = document.getElementById("f_truck").value;
+  var contract = (document.getElementById("f_contract").value||"").trim();
+  var sps = (document.getElementById("f_sps").value||"").trim();
+  var responsible = (document.getElementById("f_resp").value||"").trim();
+  var origin = (document.getElementById("f_origin").value||"").trim();
+  var notes = (document.getElementById("f_notes").value||"").trim();
+
+  if(!gid){alert(L("needGrower"));return;}
+  if(!trays || trays<1){alert(L("needTrays"));return;}
+  if(!contract || !sps){alert(L("needContract"));return;}
+
+  var f = farmerById(gid), truckIds;
+  if(pick==="auto"){
+    var s = suggest(selDate,trays,gid);
+    if(s.mode==="none"){alert(L("sgNone")+":\n• "+s.reasons.join("\n• "));return;}
+    truckIds = s.truckIds;
+  } else if(pick==="convoy"){
+    truckIds = state.config.trucks.map(function(t){return t.id;});
+  } else {
+    truckIds = [pick];
+    var t = truckById(pick);
+    if(t.capacity<trays && !confirm(fmtL("warnCapManual",{N:trays,C:t.capacity})+"\n\nOK?")) return;
+  }
+  if(pick!=="auto"){
+    var arr = state.dispatches[selDate]||[];
+    var bad = truckIds.some(function(id){
+      var c = tripCost(f,truckById(id));
+      return c!=null && remMin(arr,id)<c;
+    });
+    if(bad && !confirm(L("warnTimeManual")+"\n\nOK?")) return;
+  }
+
+  if(!state.dispatches[selDate]) state.dispatches[selDate] = [];
+  var newDispatch = {
+    id: uid(),
+    farmerId: gid,
+    farmerName: f.name,
+    phone: f.phone||"",
+    address: f.address||"",
+    trays: trays,
+    plants: plants,
+    plantasPorHa: plantasHa,
+    gender: gender,
+    superficieHa: superficie,
+    germinacion: germinacion,
+    fieldman: fieldman,
+    prioridad: prioridad,
+    op: op,
+    truckIds: truckIds,
+    origin: origin,
+    notes: notes,
+    contractNumber: contract,
+    spsCode: sps,
+    responsible: responsible,
+    user: currentUser,
+    senderEmail: corporateEmail(currentUser),
+    status: "pending",
+    sentAt: "",
+    createdAt: new Date().toISOString(),
+    date: selDate
+  };
+
+  // Si Firebase está activo, guardar allí primero
+  if(storageMode === "firebase"){
+    FBApi.addDocument("despachos", newDispatch).then(function(docId){
+      newDispatch.id = docId;
+      // Firestore subscription actualizará el state automáticamente
+      renderAll();
+    }).catch(function(err){
+      alert("❌ Error guardando en Firebase:\n" + err.message);
+      console.error(err);
+    });
+  } else {
+    state.dispatches[selDate].push(newDispatch);
+    saveState();
+    renderAll();
+  }
+}
+
+function delDispatch(ds,id){
+  var d = (state.dispatches[ds]||[]).filter(function(x){return x.id===id;})[0];
+  if(!d || !canEditDispatch(d)){alert(lang==="es"?"No tiene permiso para eliminar este registro.":"You don't have permission to delete this record.");return;}
+  if(!confirm(L("confirmDel"))) return;
+
+  if(storageMode === "firebase"){
+    FBApi.deleteDocument("despachos", id).then(function(){
+      // Firestore subscription actualizará el state automáticamente
+    }).catch(function(err){
+      alert("❌ Error eliminando: " + err.message);
+    });
+    return;
+  }
+
+  state.dispatches[ds] = (state.dispatches[ds]||[]).filter(function(x){return x.id!==id;});
+  if(!state.dispatches[ds].length) delete state.dispatches[ds];
+  saveState();
+  renderAll();
+}
+
+function editDispatch(ds,id){
+  var d = (state.dispatches[ds]||[]).filter(function(x){return x.id===id;})[0];
+  if(!d || !canEditDispatch(d)) return;
+  state.dispatches[ds] = state.dispatches[ds].filter(function(x){return x.id!==id;});
+  if(!state.dispatches[ds].length) delete state.dispatches[ds];
+  renderCalendar();
+  renderPanel();
+  document.getElementById("f_grower").value = d.farmerId||"";
+  document.getElementById("f_trays").value = d.trays||"";
+  document.getElementById("f_plants").value = d.plants||"";
+  document.getElementById("f_plantasHa").value = d.plantasPorHa||"";
+  document.getElementById("f_gender").value = d.gender||"";
+  document.getElementById("f_superficie").value = d.superficieHa||"";
+  document.getElementById("f_germ").value = d.germinacion ? (d.germinacion*100).toFixed(1) : "";
+  document.getElementById("f_fieldman").value = d.fieldman||"";
+  document.getElementById("f_prioridad").value = d.prioridad||1;
+  document.getElementById("f_op").value = d.op||"";
+  document.getElementById("f_truck").value = d.truckIds.length>1 ? "convoy" : (d.truckIds[0]||"auto");
+  document.getElementById("f_contract").value = d.contractNumber||"";
+  document.getElementById("f_sps").value = d.spsCode||"";
+  document.getElementById("f_resp").value = d.responsible||"";
+  document.getElementById("f_origin").value = d.origin||"";
+  document.getElementById("f_notes").value = d.notes||"";
+  updateSuggestion();
+}
+
+/* ============================ Farmer Import ============================ */
+
+/* Importa una lista de agricultores desde un archivo JSON, fusionando con la base
+   existente (sin borrar despachos ni configuración). Detecta duplicados por RUT
+   y por nombre normalizado. Actualiza campos vacíos, respeta los que ya tienes
+   editados manualmente. */
+function importFarmers(ev){
+  var file = ev.target.files[0];
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    try{
+      var incoming = JSON.parse(reader.result);
+      if(!Array.isArray(incoming)) throw new Error("El archivo debe ser un array de agricultores");
+
+      // Índices por RUT y por nombre normalizado (para detectar duplicados)
+      function normalizeRut(r){return String(r||"").replace(/[.\s,-]/g, "").toUpperCase();}
+      function normalizeName(n){return String(n||"").trim().toUpperCase().replace(/\s+/g, " ");}
+
+      var byRut = {}, byName = {};
+      state.farmers.forEach(function(f){
+        if(f.rut) byRut[normalizeRut(f.rut)] = f;
+        if(f.name) byName[normalizeName(f.name)] = f;
+      });
+
+      var stats = {added:0, updated:0, skipped:0, errors:0};
+      var toAddFirebase = [];  // acumulamos para bulk import a Firebase
+
+      incoming.forEach(function(inc){
+        try{
+          if(!inc.name){ stats.skipped++; return; }
+          var existing = null;
+          if(inc.rut){
+            var rk = normalizeRut(inc.rut);
+            if(rk && byRut[rk]) existing = byRut[rk];
+          }
+          if(!existing && inc.name){
+            var nk = normalizeName(inc.name);
+            if(byName[nk]) existing = byName[nk];
+          }
+
+          if(existing){
+            var changed = false;
+            var updates = {};
+            ["rut","contacto","phone","address","comuna","region","sector"].forEach(function(field){
+              if(!existing[field] && inc[field]){
+                existing[field] = inc[field];
+                updates[field] = inc[field];
+                changed = true;
+              }
+            });
+            if(changed){
+              stats.updated++;
+              if(storageMode === "firebase" && existing.id){
+                FBApi.updateDocument("agricultores", existing.id, updates).catch(function(e){
+                  console.error("Update farmer error:", e);
+                });
+              }
+            }
+          } else {
+            var farmer = {
+              name: inc.name || "",
+              rut: inc.rut || "",
+              contacto: inc.contacto || "",
+              phone: inc.phone || "",
+              sector: inc.sector || "",
+              address: inc.address || "",
+              comuna: inc.comuna || "",
+              region: inc.region || "",
+              mapsUrl: inc.mapsUrl || "",
+              lat: (inc.lat != null && inc.lat !== "") ? +inc.lat : null,
+              lng: (inc.lng != null && inc.lng !== "") ? +inc.lng : null,
+              manualTravelMin: (inc.manualTravelMin != null && inc.manualTravelMin !== "") ? +inc.manualTravelMin : null
+            };
+            if(storageMode === "firebase"){
+              toAddFirebase.push(farmer);
+            } else {
+              farmer.id = uid();
+              state.farmers.push(farmer);
+              if(inc.rut) byRut[normalizeRut(inc.rut)] = farmer;
+              if(inc.name) byName[normalizeName(inc.name)] = farmer;
+            }
+            stats.added++;
+          }
+        }catch(e){ stats.errors++; console.error(e); }
+      });
+
+      // Bulk import a Firebase si aplica
+      if(storageMode === "firebase" && toAddFirebase.length){
+        alert("Importando " + toAddFirebase.length + " agricultores a Firebase...\n\nEste proceso puede tardar 30-60 segundos.");
+        FBApi.bulkImport("agricultores", toAddFirebase).then(function(count){
+          alert(
+            "✓ Importación a Firebase completada\n\n" +
+            "  Nuevos agregados:      " + count + "\n" +
+            "  Existentes completados: " + stats.updated + "\n" +
+            "  Descartados (sin nombre): " + stats.skipped + "\n" +
+            "  Errores:                " + stats.errors + "\n\n" +
+            "Los datos se sincronizarán en unos segundos."
+          );
+        }).catch(function(err){
+          alert("❌ Error en importación bulk: " + err.message);
+        });
+      } else {
+        saveState();
+        renderAll();
+        alert(
+          "✓ Importación completada\n\n" +
+          "  Nuevos agregados:      " + stats.added + "\n" +
+          "  Existentes completados: " + stats.updated + "\n" +
+          "  Descartados (sin nombre): " + stats.skipped + "\n" +
+          "  Errores:                " + stats.errors + "\n\n" +
+          "Total agricultores en base: " + state.farmers.length
+        );
+      }
+    }catch(e){
+      alert("Archivo no válido: " + e.message);
+      console.error(e);
+    }
+  };
+  reader.readAsText(file);
+  ev.target.value = "";
+}
+/* ============================ Returns / Tray Balance ============================ */
+
+/* Estado de bandejas por agricultor:
+   - dispatched: total de bandejas ya enviadas (dispatches con fecha <= hoy)
+   - returned:   total de bandejas ya devueltas
+   - balance:    dispatched - returned (bandejas actualmente en poder del agricultor)
+   Los despachos futuros (fecha > hoy) no cuentan porque las bandejas aún no salieron. */
+function farmerBalance(farmerId){
+  var today = todayStr();
+  var dispatched = 0, returned = 0;
+  for(var k in state.dispatches){
+    if(k > today) continue;
+    (state.dispatches[k]||[]).forEach(function(d){
+      if(d.farmerId === farmerId) dispatched += (+d.trays||0);
+    });
+  }
+  (state.returns||[]).forEach(function(r){
+    if(r.farmerId === farmerId) returned += (+r.quantity||0);
+  });
+  return { dispatched: dispatched, returned: returned, balance: dispatched - returned };
+}
+
+function allFarmerBalances(){
+  var today = todayStr();
+  var map = {};
+  for(var k in state.dispatches){
+    if(k > today) continue;
+    (state.dispatches[k]||[]).forEach(function(d){
+      if(!d.farmerId) return;
+      if(!map[d.farmerId]) map[d.farmerId] = { farmerId:d.farmerId, dispatched:0, returned:0, lastDispatch:"" };
+      map[d.farmerId].dispatched += (+d.trays||0);
+      if(k > map[d.farmerId].lastDispatch) map[d.farmerId].lastDispatch = k;
+    });
+  }
+  (state.returns||[]).forEach(function(r){
+    if(!r.farmerId) return;
+    if(!map[r.farmerId]) map[r.farmerId] = { farmerId:r.farmerId, dispatched:0, returned:0, lastDispatch:"" };
+    map[r.farmerId].returned += (+r.quantity||0);
+  });
+  return Object.keys(map).map(function(id){
+    var f = farmerById(id);
+    return {
+      farmerId: id,
+      name: f ? f.name : "(agricultor eliminado)",
+      phone: f ? f.phone : "",
+      dispatched: map[id].dispatched,
+      returned: map[id].returned,
+      balance: map[id].dispatched - map[id].returned,
+      lastDispatch: map[id].lastDispatch
+    };
+  });
+}
+
+var returnsFilter = { showAll: false, search: "" };
+
+function openReturnsPanel(){
+  document.getElementById("ovReturns").classList.add("show");
+  renderReturnsPanel();
+}
+
+function renderReturnsPanel(){
+  var balances = allFarmerBalances();
+  var search = (returnsFilter.search||"").toLowerCase().trim();
+
+  var visible = balances.filter(function(b){
+    if(!returnsFilter.showAll && b.balance <= 0) return false;
+    if(search && b.name.toLowerCase().indexOf(search) < 0) return false;
+    return true;
+  });
+  visible.sort(function(a,b){return b.balance - a.balance;});
+
+  var totalPend = balances.reduce(function(s,b){return s + Math.max(b.balance,0);}, 0);
+  var totalDesp = balances.reduce(function(s,b){return s + b.dispatched;}, 0);
+  var totalDev  = balances.reduce(function(s,b){return s + b.returned;}, 0);
+  var withDebt  = balances.filter(function(b){return b.balance > 0;}).length;
+
+  var html = '';
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">'
+    + '<div style="padding:12px;background:var(--warn-soft);border-radius:8px;border:1px solid #f0d9ab">'
+    + '<div style="font-size:20px;font-weight:800;color:var(--warn)">' + fmtNum(totalPend) + '</div>'
+    + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Bandejas pendientes</div></div>'
+    + '<div style="padding:12px;background:var(--blue-soft);border-radius:8px;border:1px solid var(--blue-line)">'
+    + '<div style="font-size:20px;font-weight:800;color:var(--navy)">' + fmtNum(totalDesp) + '</div>'
+    + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Total despachado</div></div>'
+    + '<div style="padding:12px;background:var(--ok-soft);border-radius:8px;border:1px solid #bfe0cd">'
+    + '<div style="font-size:20px;font-weight:800;color:var(--ok)">' + fmtNum(totalDev) + '</div>'
+    + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Total devuelto</div></div>'
+    + '</div>';
+
+  html += '<div style="font-size:12.5px;color:var(--muted);margin-bottom:10px"><strong>'
+    + withDebt + '</strong> agricultores con bandejas pendientes de devolver</div>';
+
+  html += '<div class="row2" style="margin-bottom:12px">'
+    + '<div><input id="rf_search" type="text" placeholder="🔍 Buscar agricultor..." value="' + esc(returnsFilter.search) + '" oninput="returnsFilter.search=this.value;renderReturnsPanel();setTimeout(function(){var el=document.getElementById(\'rf_search\');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0)"></div>'
+    + '<div style="display:flex;align-items:center;gap:8px;padding:0 4px">'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-weight:normal;color:var(--ink)">'
+    + '<input type="checkbox" style="width:auto;min-height:auto" ' + (returnsFilter.showAll?"checked":"") + ' onchange="returnsFilter.showAll=this.checked;renderReturnsPanel()">'
+    + 'Mostrar todos (incluir al día)</label></div></div>';
+
+  // Botón para exportar el reporte de bandejas pendientes
+  html += '<div style="margin-bottom:14px">'
+    + '<button class="btn warn sm" onclick="exportPendingReturns()" style="width:100%">📊 Descargar reporte Excel de bandejas pendientes</button>'
+    + '</div>';
+
+  if(!visible.length){
+    html += '<div class="empty">' + traySvgBig() + '<div>'
+      + (returnsFilter.showAll ? 'No hay despachos registrados aún.' : 'No hay bandejas pendientes de devolución. 🎉')
+      + '</div></div>';
+  } else {
+    html += '<div class="dlist">';
+    visible.forEach(function(b){
+      var isPending = b.balance > 0;
+      var color = isPending ? "var(--warn)" : "var(--ok)";
+      var bgColor = isPending ? "var(--warn-soft)" : "var(--ok-soft)";
+      var borderColor = isPending ? "#f0d9ab" : "#bfe0cd";
+      var lastDate = b.lastDispatch ? b.lastDispatch.split("-").reverse().join("-") : "—";
+      html += '<div class="drow" style="border-color:' + borderColor + '">'
+        + '<div class="d1">'
+        + '<div class="dname">' + esc(b.name) + (b.phone?' <span style="font-size:11px;color:var(--muted);font-weight:normal">' + esc(b.phone) + '</span>':'') + '</div>'
+        + '<div style="background:' + bgColor + ';color:' + color + ';padding:4px 12px;border-radius:8px;font-weight:800;font-size:14px;border:1px solid ' + borderColor + '">'
+        + fmtNum(b.balance) + (isPending ? " pendientes" : " ✓ al día")
+        + '</div></div>'
+        + '<div class="d2">'
+        + '<span>📤 Despachado: <strong>' + fmtNum(b.dispatched) + '</strong></span>'
+        + '<span>📥 Devuelto: <strong>' + fmtNum(b.returned) + '</strong></span>'
+        + '<span>Último despacho: ' + lastDate + '</span>'
+        + '</div>'
+        + '<div class="d3">'
+        + '<button class="' + (isPending?"btn primary sm":"btn ghost sm") + '" onclick="promptAddReturn(\'' + b.farmerId + '\')">+ Registrar devolución</button>'
+        + '<button class="btn ghost sm" onclick="showFarmerMovements(\'' + b.farmerId + '\')">Ver historial</button>'
+        + '</div></div>';
+    });
+    html += '</div>';
+  }
+
+  // Últimas devoluciones (para corregir errores)
+  var recent = (state.returns||[]).slice().sort(function(a,b){return String(b.createdAt||"").localeCompare(String(a.createdAt||""));}).slice(0,5);
+  if(recent.length){
+    html += '<div class="sec"><h4>Últimas devoluciones registradas</h4>';
+    recent.forEach(function(r){
+      var f = farmerById(r.farmerId);
+      var name = f ? f.name : "(agricultor eliminado)";
+      var dateFmt = r.date ? r.date.split("-").reverse().join("-") : "—";
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fcfdff;gap:8px;flex-wrap:wrap">'
+        + '<div style="flex:1;min-width:200px"><strong>' + esc(name) + '</strong>'
+        + '<div style="font-size:11.5px;color:var(--muted)">' + dateFmt + ' · ' + esc(r.user||"—")
+        + (r.notes ? ' · ' + esc(r.notes) : '') + '</div></div>'
+        + '<div style="font-weight:800;color:var(--ok)">' + fmtNum(r.quantity) + '</div>'
+        + '<button class="btn danger sm" onclick="deleteReturn(\'' + r.id + '\')">Eliminar</button>'
+        + '</div>';
+    });
+    html += '</div>';
+  }
+
+  document.getElementById("returnsBody").innerHTML = html;
+}
+
+function promptAddReturn(farmerId){
+  var f = farmerById(farmerId);
+  if(!f){alert("Agricultor no encontrado"); return;}
+  var bal = farmerBalance(farmerId);
+  var qStr = prompt(
+    "Registrar devolución de bandejas\n\n" +
+    "Agricultor: " + f.name + "\n" +
+    "Despachadas: " + fmtNum(bal.dispatched) + "\n" +
+    "Ya devueltas: " + fmtNum(bal.returned) + "\n" +
+    "Saldo pendiente: " + fmtNum(bal.balance) + "\n\n" +
+    "Cantidad de bandejas devueltas:"
+  );
+  if(qStr === null) return;
+  var qty = parseInt(qStr, 10);
+  if(!qty || qty < 1){alert("Cantidad inválida"); return;}
+  if(qty > bal.balance){
+    if(!confirm("La cantidad (" + qty + ") supera el saldo pendiente (" + bal.balance + ").\n¿Continuar de todos modos?")) return;
+  }
+  var notes = prompt("Observaciones (opcional):\nEj: 'Se devuelven 5 quebradas', 'entrega parcial', etc.") || "";
+
+  var newReturn = {
+    id: uid(),
+    farmerId: farmerId,
+    date: todayStr(),
+    quantity: qty,
+    notes: notes.trim(),
+    user: currentUser,
+    createdAt: new Date().toISOString()
+  };
+
+  if(storageMode === "firebase"){
+    FBApi.addDocument("devoluciones", newReturn).then(function(docId){
+      // subscription actualizará
+    }).catch(function(err){
+      alert("❌ Error guardando devolución: " + err.message);
+    });
+  } else {
+    state.returns.push(newReturn);
+    saveState();
+    renderReturnsPanel();
+  }
+}
+
+function deleteReturn(returnId){
+  var r = (state.returns||[]).filter(function(x){return x.id===returnId;})[0];
+  if(!r) return;
+  var f = farmerById(r.farmerId);
+  var name = f ? f.name : "(agricultor eliminado)";
+  if(!confirm("¿Eliminar esta devolución?\n\n" + name + "\n" + r.quantity + " bandejas | " + r.date)) return;
+
+  if(storageMode === "firebase"){
+    FBApi.deleteDocument("devoluciones", returnId).then(function(){
+      // subscription actualizará
+    }).catch(function(err){
+      alert("❌ Error eliminando: " + err.message);
+    });
+    return;
+  }
+
+  state.returns = state.returns.filter(function(x){return x.id !== returnId;});
+  saveState();
+  renderReturnsPanel();
+}
+
+/* ============================ Pending Returns Report ============================ */
+
+var PENDING_HEADERS = [
+  "RAZON SOCIAL","RUT","CONTACTO","FONO","DIRECCION","COMUNA/PROVINCIA","REGION",
+  "TOTAL DESPACHADO","TOTAL DEVUELTO","SALDO PENDIENTE",
+  "ULTIMO DESPACHO","DIAS DESDE ULTIMO"
+];
+
+function exportPendingReturns(){
+  var balances = allFarmerBalances().filter(function(b){return b.balance > 0;});
+  if(!balances.length){
+    alert("🎉 No hay agricultores con bandejas pendientes de devolución.");
+    return;
+  }
+  balances.sort(function(a,b){return b.balance - a.balance;});
+
+  var filename = "BANDEJAS_PENDIENTES_" + todayStrDDMMYYYY();
+  if(typeof ExcelJS !== "undefined"){
+    exportPendingReturnsXLSX(balances, filename + ".xlsx");
+  } else {
+    exportPendingReturnsCSV(balances, filename + ".csv");
+  }
+}
+
+function daysSinceISO(isoDate){
+  if(!isoDate) return null;
+  var parts = isoDate.split("-");
+  if(parts.length !== 3) return null;
+  var d = new Date(+parts[0], +parts[1]-1, +parts[2]);
+  var now = new Date();
+  var today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((today0 - d) / (1000*60*60*24));
+}
+
+function exportPendingReturnsXLSX(balances, filename){
+  var wb = new ExcelJS.Workbook();
+  wb.creator = "SPS Chile - Despacho";
+  wb.created = new Date();
+
+  var ws = wb.addWorksheet("BANDEJAS PENDIENTES", {
+    properties: { tabColor: { argb: "FFB06A00" } },
+    views: [{ state: "frozen", ySplit: 1 }]
+  });
+
+  ws.addRow(PENDING_HEADERS);
+  var header = ws.getRow(1);
+  header.height = 34;
+  header.eachCell(function(cell){
+    cell.fill = { type:"pattern", pattern:"solid", fgColor:{argb:"FF14366E"} };
+    cell.font = { name:"Arial", size:10, bold:true, color:{argb:"FFFFFFFF"} };
+    cell.alignment = { vertical:"middle", horizontal:"center", wrapText:true };
+    cell.border = {
+      top:    { style:"medium", color:{argb:"FF000000"} },
+      bottom: { style:"medium", color:{argb:"FF000000"} },
+      left:   { style:"thin",   color:{argb:"FF000000"} },
+      right:  { style:"thin",   color:{argb:"FF000000"} }
+    };
+  });
+
+  balances.forEach(function(b){
+    var f = farmerById(b.farmerId) || {};
+    var lastDate = null;
+    if(b.lastDispatch){
+      var p = b.lastDispatch.split("-");
+      if(p.length===3) lastDate = new Date(+p[0], +p[1]-1, +p[2]);
+    }
+    var daysSince = daysSinceISO(b.lastDispatch);
+
+    ws.addRow([
+      f.name || b.name,
+      f.rut || "",
+      f.contacto || "",
+      f.phone || b.phone || "",
+      f.address || "",
+      f.comuna || "",
+      f.region || "",
+      b.dispatched,
+      b.returned,
+      b.balance,
+      lastDate,
+      daysSince
+    ]);
+  });
+
+  var lastRow = ws.rowCount;
+  var lastCol = PENDING_HEADERS.length;
+  for(var r=2; r<=lastRow; r++){
+    var row = ws.getRow(r);
+    row.height = 22;
+    for(var c=1; c<=lastCol; c++){
+      var cell = row.getCell(c);
+      cell.border = {
+        top:    { style:"thin", color:{argb:"FF8AA0BC"} },
+        bottom: { style:"thin", color:{argb:"FF8AA0BC"} },
+        left:   { style:"thin", color:{argb:"FF8AA0BC"} },
+        right:  { style:"thin", color:{argb:"FF8AA0BC"} }
+      };
+      cell.alignment = { vertical:"middle" };
+      cell.font = { name:"Arial", size:10 };
+      if(r % 2 === 0){
+        cell.fill = { type:"pattern", pattern:"solid", fgColor:{argb:"FFF5F8FA"} };
+      }
+    }
+    // Resalta SALDO PENDIENTE en amarillo intenso
+    var saldoCell = row.getCell(10);
+    saldoCell.fill = { type:"pattern", pattern:"solid", fgColor:{argb:"FFFFF3CD"} };
+    saldoCell.font = { name:"Arial", size:11, bold:true, color:{argb:"FFB06A00"} };
+    saldoCell.alignment = { vertical:"middle", horizontal:"center" };
+
+    // Colorea DÍAS según antigüedad (>=60 rojo, >=30 amarillo)
+    var daysCell = row.getCell(12);
+    var daysVal = daysCell.value;
+    if(typeof daysVal === "number"){
+      if(daysVal >= 60){
+        daysCell.fill = { type:"pattern", pattern:"solid", fgColor:{argb:"FFFBE9E7"} };
+        daysCell.font = { name:"Arial", size:10, bold:true, color:{argb:"FFB3261E"} };
+      } else if(daysVal >= 30){
+        daysCell.fill = { type:"pattern", pattern:"solid", fgColor:{argb:"FFFFF4E2"} };
+        daysCell.font = { name:"Arial", size:10, bold:true, color:{argb:"FFB06A00"} };
+      }
+      daysCell.alignment = { vertical:"middle", horizontal:"center" };
+    }
+  }
+
+  ws.getColumn(8).numFmt  = '#,##0';
+  ws.getColumn(9).numFmt  = '#,##0';
+  ws.getColumn(10).numFmt = '#,##0';
+  ws.getColumn(11).numFmt = 'dd-mm-yyyy';
+  ws.getColumn(12).numFmt = '0';
+
+  [8, 9, 10, 11, 12].forEach(function(colIdx){
+    ws.getColumn(colIdx).alignment = { vertical:"middle", horizontal:"center" };
+  });
+
+  // Totales
+  var totalDesp = balances.reduce(function(s,b){return s + b.dispatched;}, 0);
+  var totalDev  = balances.reduce(function(s,b){return s + b.returned;}, 0);
+  var totalPend = balances.reduce(function(s,b){return s + b.balance;}, 0);
+
+  ws.addRow([]);
+  var totalRow = new Array(PENDING_HEADERS.length).fill("");
+  totalRow[0] = "TOTALES (" + balances.length + " agricultores)";
+  totalRow[7] = totalDesp;
+  totalRow[8] = totalDev;
+  totalRow[9] = totalPend;
+  ws.addRow(totalRow);
+
+  var tRow = ws.getRow(ws.rowCount);
+  tRow.height = 28;
+  tRow.eachCell({ includeEmpty: true }, function(cell, colNumber){
+    if(colNumber > lastCol) return;
+    cell.font = { name:"Arial", size:11, bold:true, color:{argb:"FF14366E"} };
+    cell.fill = { type:"pattern", pattern:"solid", fgColor:{argb:"FFE8EFF8"} };
+    cell.border = {
+      top:    { style:"medium", color:{argb:"FF14366E"} },
+      bottom: { style:"medium", color:{argb:"FF14366E"} },
+      left:   { style:"thin",   color:{argb:"FF14366E"} },
+      right:  { style:"thin",   color:{argb:"FF14366E"} }
+    };
+    cell.alignment = { vertical:"middle", horizontal: colNumber===1 ? "left" : "center" };
+  });
+  tRow.getCell(8).numFmt = '#,##0';
+  tRow.getCell(9).numFmt = '#,##0';
+  tRow.getCell(10).numFmt = '#,##0';
+
+  var widths = [32, 14, 24, 14, 34, 24, 16, 14, 14, 14, 13, 12];
+  widths.forEach(function(w, i){ ws.getColumn(i+1).width = w; });
+
+  ws.autoFilter = { from:{row:1,column:1}, to:{row:lastRow,column:lastCol} };
+
+  wb.xlsx.writeBuffer().then(function(buffer){
+    var blob = new Blob([buffer], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){URL.revokeObjectURL(url);}, 1500);
+  }).catch(function(err){
+    console.error("Error XLSX, cayendo a CSV:", err);
+    exportPendingReturnsCSV(balances, filename.replace(/\.xlsx$/i, ".csv"));
+  });
+}
+
+function exportPendingReturnsCSV(balances, filename){
+  var rows = [PENDING_HEADERS.slice()];
+  balances.forEach(function(b){
+    var f = farmerById(b.farmerId) || {};
+    var lastFmt = b.lastDispatch ? b.lastDispatch.split("-").reverse().join("-") : "";
+    var days = daysSinceISO(b.lastDispatch);
+    rows.push([
+      f.name || b.name, f.rut || "", f.contacto || "",
+      f.phone || b.phone || "", f.address || "", f.comuna || "", f.region || "",
+      b.dispatched, b.returned, b.balance,
+      lastFmt, days == null ? "" : days
+    ]);
+  });
+  var totalDesp = balances.reduce(function(s,b){return s + b.dispatched;}, 0);
+  var totalDev  = balances.reduce(function(s,b){return s + b.returned;}, 0);
+  var totalPend = balances.reduce(function(s,b){return s + b.balance;}, 0);
+  rows.push([]);
+  var tRow = new Array(PENDING_HEADERS.length).fill("");
+  tRow[0] = "TOTALES (" + balances.length + " agricultores)";
+  tRow[7] = totalDesp; tRow[8] = totalDev; tRow[9] = totalPend;
+  rows.push(tRow);
+
+  var csv = rows.map(function(r){return r.map(csvEscape).join(";");}).join("\r\n");
+  var blob = new Blob(["\uFEFF" + csv], {type:"text/csv;charset=utf-8;"});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);}, 1000);
+}
+
+function showFarmerMovements(farmerId){
+  var f = farmerById(farmerId);
+  if(!f) return;
+  var today = todayStr();
+
+  var movements = [];
+  for(var k in state.dispatches){
+    (state.dispatches[k]||[]).forEach(function(d){
+      if(d.farmerId === farmerId){
+        movements.push({
+          date: k,
+          type: k > today ? "DESPACHO (futuro)" : "DESPACHO",
+          quantity: +d.trays||0,
+          isDispatch: true,
+          isFuture: k > today
+        });
+      }
+    });
+  }
+  (state.returns||[]).forEach(function(r){
+    if(r.farmerId === farmerId){
+      movements.push({
+        date: r.date,
+        type: "DEVOLUCION",
+        quantity: +r.quantity||0,
+        isDispatch: false,
+        notes: r.notes || ""
+      });
+    }
+  });
+  movements.sort(function(a,b){return a.date.localeCompare(b.date);});
+
+  var running = 0;
+  var lines = [];
+  lines.push("Historial de bandejas - " + f.name);
+  lines.push("=".repeat(58));
+  lines.push("");
+  lines.push("FECHA         MOVIMIENTO           CANTIDAD    SALDO");
+  lines.push("-".repeat(58));
+  if(!movements.length){
+    lines.push("(Sin movimientos)");
+  } else {
+    movements.forEach(function(m){
+      if(m.isDispatch && !m.isFuture) running += m.quantity;
+      else if(!m.isDispatch) running -= m.quantity;
+      var dateFmt = m.date.split("-").reverse().join("-");
+      var sign = m.isDispatch ? "+" : "-";
+      var padType = (m.type + "                 ").substring(0,19);
+      var padQty  = ("     " + sign + m.quantity).slice(-8);
+      var padBal  = ("     " + (m.isFuture ? "(pend)" : running)).slice(-8);
+      lines.push(dateFmt + "   " + padType + padQty + "   " + padBal);
+      if(m.notes) lines.push("              Obs: " + m.notes);
+    });
+  }
+  lines.push("-".repeat(58));
+  lines.push("SALDO ACTUAL: " + running + " bandejas");
+  alert(lines.join("\n"));
+}
+
+function openFarmers(){document.getElementById("ovFarm").classList.add("show"); editingFarmerId=null; renderFarmers(); renderFarmerForm();}
+function closeOv(id){document.getElementById(id).classList.remove("show"); if(selDate) renderPanel();}
+
+function renderFarmers(){
+  var el = document.getElementById("farmList");
+  if(!state.farmers.length){el.innerHTML='<div class="hint">'+L("fNone")+'</div>'; return;}
+  el.innerHTML = state.farmers.map(function(f){
+    var tv = travelMin(f);
+    return '<div class="farmrow"><div class="fn"><div class="nm">'+esc(f.name)+'</div>'
+      + '<div class="ph">'+(f.phone?esc(f.phone):L("noPhone"))
+      + (f.sector?' · '+esc(f.sector):'')
+      + (tv!=null?' · '+tv+' '+L("min")+' '+L("oneWay"):'')+'</div></div>'
+      + '<button class="btn ghost sm" onclick="editFarmer(\''+f.id+'\')">'+L("fEdit")+'</button>'
+      + '<button class="btn danger sm" onclick="delFarmer(\''+f.id+'\')">'+L("fDel")+'</button></div>';
+  }).join("");
+}
+
+function renderFarmerForm(){
+  var f = editingFarmerId ? farmerById(editingFarmerId) : {name:"",rut:"",contacto:"",phone:"",address:"",comuna:"",region:"",mapsUrl:"",lat:"",lng:"",sector:"",manualTravelMin:""};
+  document.getElementById("farmForm").innerHTML =
+    '<h4>'+(editingFarmerId?L("fEdit"):L("fNew"))+'</h4>'
+    + '<label class="fl">Razón Social</label><input id="ff_name" value="'+esc(f.name||"")+'" placeholder="Nombre o razón social del agricultor">'
+    + '<div class="row2">'
+    + '<div><label class="fl">RUT</label><input id="ff_rut" value="'+esc(f.rut||"")+'" placeholder="12.345.678-9"></div>'
+    + '<div><label class="fl">Contacto (persona)</label><input id="ff_contacto" value="'+esc(f.contacto||"")+'" placeholder="Quien recibe el despacho"></div>'
+    + '</div>'
+    + '<div class="row2"><div><label class="fl">'+L("fPhone")+'</label><input id="ff_phone" value="'+esc(f.phone||"")+'" placeholder="+56 9 ..."></div>'
+    + '<div><label class="fl">'+L("fSector")+'</label><input id="ff_sector" value="'+esc(f.sector||"")+'"></div></div>'
+    + '<label class="fl">'+L("fAddress")+'</label><input id="ff_addr" value="'+esc(f.address||"")+'" placeholder="Calle, parcela, fundo, sin número...">'
+    + '<div class="row2">'
+    + '<div><label class="fl">Comuna / Provincia</label><input id="ff_comuna" value="'+esc(f.comuna||"")+'" placeholder="CHIMBARONGO/COLCHAGUA"></div>'
+    + '<div><label class="fl">Región</label><input id="ff_region" value="'+esc(f.region||"")+'" placeholder="VI.O.HIGGINS"></div>'
+    + '</div>'
+    + '<label class="fl">'+L("fMaps")+'</label><input id="ff_maps" value="'+esc(f.mapsUrl||"")+'" oninput="tryParseCoords()" placeholder="https://maps.app.goo.gl/…  /  -34.43, -71.08">'
+    + '<div class="row3"><div><label class="fl">'+L("fLat")+'</label><input id="ff_lat" value="'+(f.lat==null?"":f.lat)+'"></div>'
+    + '<div><label class="fl">'+L("fLng")+'</label><input id="ff_lng" value="'+(f.lng==null?"":f.lng)+'"></div>'
+    + '<div><label class="fl">'+L("fManual")+'</label><input id="ff_man" type="number" min="0" value="'+(f.manualTravelMin==null?"":f.manualTravelMin)+'"></div></div>'
+    + '<div class="btnrow"><button class="btn ghost" onclick="useGps()">'+gpsSvg()+L("fGps")+'</button>'
+    + '<button class="btn primary" style="flex:1" onclick="saveFarmer()">'+L("fSave")+'</button></div>'
+    + '<div class="hint" id="ff_hint"></div>';
+}
+
+function parseCoords(s){
+  if(!s) return null;
+  var m;
+  m = s.match(/^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/); if(m) return [+m[1],+m[2]];
+  m = s.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/); if(m) return [+m[1],+m[2]];
+  m = s.match(/[?&](?:q|ll|sll)=(-?\d+\.\d+),(-?\d+\.\d+)/); if(m) return [+m[1],+m[2]];
+  m = s.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/); if(m) return [+m[1],+m[2]];
+  return null;
+}
+
+function tryParseCoords(){
+  var c = parseCoords(document.getElementById("ff_maps").value);
+  var h = document.getElementById("ff_hint");
+  if(c){
+    document.getElementById("ff_lat").value = c[0];
+    document.getElementById("ff_lng").value = c[1];
+    h.textContent = L("coordsParsed");
+  } else if(/^https?:/i.test(document.getElementById("ff_maps").value)){
+    h.textContent = L("coordsNone");
+  } else h.textContent = "";
+}
+
+function editFarmer(id){editingFarmerId=id; renderFarmerForm();}
+
+function delFarmer(id){
+  if(!confirm(L("fDelConfirm"))) return;
+
+  if(storageMode === "firebase"){
+    FBApi.deleteDocument("agricultores", id).then(function(){
+      state.farmers = state.farmers.filter(function(f){return f.id!==id;});
+      renderFarmers();
+      if(editingFarmerId===id){editingFarmerId=null; renderFarmerForm();}
+    }).catch(function(err){
+      alert("❌ Error eliminando: " + err.message);
+    });
+    return;
+  }
+
+  state.farmers = state.farmers.filter(function(f){return f.id!==id;});
+  saveState();
+  renderFarmers();
+  if(editingFarmerId===id){editingFarmerId=null; renderFarmerForm();}
+}
+
+function saveFarmer(){
+  var name = (document.getElementById("ff_name").value||"").trim();
+  if(!name){document.getElementById("ff_name").focus(); return;}
+  var lat = document.getElementById("ff_lat").value;
+  var lng = document.getElementById("ff_lng").value;
+  var man = document.getElementById("ff_man").value;
+  var rec = {
+    name:name,
+    rut:(document.getElementById("ff_rut").value||"").trim(),
+    contacto:(document.getElementById("ff_contacto").value||"").trim(),
+    phone:(document.getElementById("ff_phone").value||"").trim(),
+    sector:(document.getElementById("ff_sector").value||"").trim(),
+    address:(document.getElementById("ff_addr").value||"").trim(),
+    comuna:(document.getElementById("ff_comuna").value||"").trim(),
+    region:(document.getElementById("ff_region").value||"").trim(),
+    mapsUrl:(document.getElementById("ff_maps").value||"").trim(),
+    lat: lat===""?null:+lat,
+    lng: lng===""?null:+lng,
+    manualTravelMin: man===""?null:+man
+  };
+
+  if(storageMode === "firebase"){
+    if(editingFarmerId){
+      // Actualizar en Firebase
+      FBApi.updateDocument("agricultores", editingFarmerId, rec).then(function(){
+        // Actualiza en memoria también
+        Object.assign(farmerById(editingFarmerId), rec);
+        editingFarmerId = null;
+        renderFarmers();
+        renderFarmerForm();
+      }).catch(function(err){
+        alert("❌ Error actualizando agricultor: " + err.message);
+      });
+    } else {
+      // Agregar en Firebase
+      FBApi.addDocument("agricultores", rec).then(function(docId){
+        rec.id = docId;
+        state.farmers.push(rec);
+        renderFarmers();
+        renderFarmerForm();
+      }).catch(function(err){
+        alert("❌ Error guardando agricultor: " + err.message);
+      });
+    }
+    return;
+  }
+
+  if(editingFarmerId){
+    Object.assign(farmerById(editingFarmerId), rec);
+  } else {
+    rec.id = uid();
+    state.farmers.push(rec);
+  }
+  editingFarmerId = null;
+  saveState();
+  renderFarmers();
+  renderFarmerForm();
+}
+
+function useGps(){
+  var h = document.getElementById("ff_hint");
+  if(!navigator.geolocation){h.textContent=L("gpsFail"); return;}
+  h.textContent = "…";
+  navigator.geolocation.getCurrentPosition(function(p){
+    document.getElementById("ff_lat").value = p.coords.latitude.toFixed(6);
+    document.getElementById("ff_lng").value = p.coords.longitude.toFixed(6);
+    h.textContent = L("gpsOk");
+  }, function(){h.textContent=L("gpsFail");}, {enableHighAccuracy:true,timeout:8000});
+}
+
+/* ============================ Config ============================ */
+function openConfig(){document.getElementById("ovCfg").classList.add("show"); renderConfig();}
+
+function renderConfig(){
+  var c = state.config;
+  var html = '<h4>'+L("cDepot")+'</h4>'
+    + '<label class="fl">'+L("cDepotName")+'</label><input id="cf_dname" value="'+esc(c.depot.name||"")+'">'
+    + '<div class="row3"><div><label class="fl">'+L("fLat")+'</label><input id="cf_dlat" value="'+(c.depot.lat==null?"":c.depot.lat)+'"></div>'
+    + '<div><label class="fl">'+L("fLng")+'</label><input id="cf_dlng" value="'+(c.depot.lng==null?"":c.depot.lng)+'"></div>'
+    + '<div><label class="fl">'+L("cSin")+'</label><input id="cf_sin" type="number" step="0.1" value="'+(c.sinuosity||1.4)+'"></div></div>'
+    + '<div class="btnrow"><button class="btn ghost" onclick="useDepotGps()">'+gpsSvg()+L("cGpsDepot")+'</button></div>'
+    + '<div class="sec"><h4>'+L("cTrucks")+'</h4>';
+  c.trucks.forEach(function(t,i){
+    html += '<div class="tk"><div class="row2">'
+      + '<div><label class="fl">'+L("cTName")+'</label><input id="ct_n'+i+'" value="'+esc(t.name)+'"></div>'
+      + '<div><label class="fl">'+L("cCap")+'</label><input id="ct_c'+i+'" type="number" value="'+t.capacity+'"></div></div>'
+      + '<div class="row3"><div><label class="fl">'+L("cStart")+'</label><input id="ct_s'+i+'" type="time" value="'+t.dayStart+'"></div>'
+      + '<div><label class="fl">'+L("cEnd")+'</label><input id="ct_e'+i+'" type="time" value="'+t.dayEnd+'"></div>'
+      + '<div><label class="fl">'+L("cSpeed")+'</label><input id="ct_v'+i+'" type="number" value="'+t.speed+'"></div></div>'
+      + '<div class="row2"><div><label class="fl">'+L("cLoad")+'</label><input id="ct_l'+i+'" type="number" value="'+t.loadMin+'"></div>'
+      + '<div><label class="fl">'+L("cUnload")+'</label><input id="ct_u'+i+'" type="number" value="'+t.unloadMin+'"></div></div></div>';
+  });
+  html += '</div><div class="hint">'+L("cNote")+'</div>'
+    + '<button class="btn primary" style="width:100%;margin-top:14px" onclick="saveConfig()">'+L("cSave")+'</button>';
+  document.getElementById("cfgBody").innerHTML = html;
+}
+
+function useDepotGps(){
+  if(!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(function(p){
+    document.getElementById("cf_dlat").value = p.coords.latitude.toFixed(6);
+    document.getElementById("cf_dlng").value = p.coords.longitude.toFixed(6);
+  },function(){},{enableHighAccuracy:true,timeout:8000});
+}
+
+function saveConfig(){
+  var c = state.config;
+  c.depot.name = document.getElementById("cf_dname").value.trim();
+  var dl = document.getElementById("cf_dlat").value, dn = document.getElementById("cf_dlng").value;
+  c.depot.lat = dl===""?null:+dl;
+  c.depot.lng = dn===""?null:+dn;
+  c.sinuosity = +document.getElementById("cf_sin").value || 1.4;
+  c.trucks.forEach(function(t,i){
+    t.name = document.getElementById("ct_n"+i).value.trim();
+    t.capacity = +document.getElementById("ct_c"+i).value || 0;
+    t.dayStart = document.getElementById("ct_s"+i).value;
+    t.dayEnd = document.getElementById("ct_e"+i).value;
+    t.speed = +document.getElementById("ct_v"+i).value || 55;
+    t.loadMin = +document.getElementById("ct_l"+i).value || 0;
+    t.unloadMin = +document.getElementById("ct_u"+i).value || 0;
+  });
+  saveState();
+  closeOv("ovCfg");
+  renderAll();
+}
+
+/* ============================ Outlook / Email ============================ */
+function getCurrentUserDispatches(){
+  var out = [];
+  for(var k in state.dispatches){
+    (state.dispatches[k]||[]).forEach(function(d){
+      if(normalizeUser(d.user)===normalizeUser(currentUser)) out.push(Object.assign({date:k}, d));
+    });
+  }
+  return out.sort(function(a,b){return a.date.localeCompare(b.date);});
+}
+
+/* Builds the canonical row used by BOTH email and Excel.
+   23 columns matching the production file DESPACHOS_INVERNADERO format. */
+function buildDispatchRow(d){
+  var f = farmerById(d.farmerId) || {};
+  var plantsPerHa = +d.plantasPorHa || 0;
+  var plants = +d.plants || 0;
+  var haDespachadas = plantsPerHa > 0 ? (plants / plantsPerHa) : 0;
+  return {
+    razonSocial:   f.name || d.farmerName || "",
+    rut:           f.rut || "",
+    contacto:      f.contacto || "",
+    fono:          f.phone || d.phone || "",
+    direccion:     f.address || d.address || "",
+    comuna:        f.comuna || "",
+    region:        f.region || "",
+    spscode:       d.spsCode || "",
+    female:        d.gender === "F" ? "X" : "",
+    male:          d.gender === "M" ? "X" : "",
+    op:            d.op || "",
+    superficieHa:  +d.superficieHa || 0,
+    fieldman:      d.fieldman || "",
+    contrato:      d.contractNumber || "",
+    fecha:         d.date,
+    germinacion:   +d.germinacion || 0,    // stored as 0-1 decimal
+    bandejas:      +d.trays || 0,
+    plantas:       plants,
+    prioridad:     +d.prioridad || 1,
+    despachadasX:  d.status === "sent" ? "X" : "",
+    haDespachadas: haDespachadas,
+    plantasPorHa:  plantsPerHa,
+    observaciones: d.notes || ""
+  };
+}
+
+/* The 23 column headers exactly as in the production Excel */
+var EXCEL_HEADERS = [
+  "RAZON SOCIAL",
+  "RUT",
+  "CONTACTO",
+  "FONO",
+  "DIRECCION",
+  "COMUNA/PROVINCIA",
+  "REGION",
+  "SPSCODE",
+  "FEMALE",
+  "MALE",
+  "OP",
+  "SUPERFICIE (HA)",
+  "FIELDMAN",
+  "CONTRATO INVERNADERO",
+  "FECHA DESPACHO",
+  "GERMINACION",
+  "N° BANDEJAS",
+  "N° PLANTAS",
+  "PRIORIDAD",
+  "DESPACHADAS (X)",
+  "HA DESPACHADAS",
+  "PLANTAS POR HA",
+  "OBSERVACIONES"
+];
+
+/* Format a single dispatch as a clean compact block for email body */
+function formatDispatchForEmail(d, index){
+  var r = buildDispatchRow(d);
+  var germPct = (r.germinacion * 100).toFixed(1) + "%";
+  var typeLabel = r.female === "X" ? "Female" : (r.male === "X" ? "Male" : "—");
+  return [
+    "DESPACHO " + (index+1) + "  |  Prioridad: " + r.prioridad,
+    "   Razon Social:         " + (r.razonSocial || "—"),
+    "   RUT:                  " + (r.rut || "—"),
+    "   Contacto:             " + (r.contacto || "—"),
+    "   Fono:                 " + (r.fono || "—"),
+    "   Direccion:            " + (r.direccion || "—"),
+    "   Comuna/Provincia:     " + (r.comuna || "—"),
+    "   Region:               " + (r.region || "—"),
+    "   SPSCODE:              " + (r.spscode || "—"),
+    "   Tipo:                 " + typeLabel + (r.op ? "  (OP: " + r.op + ")" : ""),
+    "   Superficie (HA):      " + (r.superficieHa || "—"),
+    "   Fieldman:             " + (r.fieldman || "—"),
+    "   Contrato Invernadero: " + (r.contrato || "—"),
+    "   Fecha Despacho:       " + dayLong(r.fecha),
+    "   Germinacion:          " + germPct,
+    "   N° Bandejas:          " + fmtNum(r.bandejas),
+    "   N° Plantas:           " + fmtNum(r.plantas),
+    "   Plantas por HA:       " + fmtNum(r.plantasPorHa),
+    "   HA Despachadas:       " + (r.haDespachadas ? r.haDespachadas.toFixed(4) : "—"),
+    "   Observaciones:        " + (r.observaciones || "—")
+  ].join("\n");
+}
+
+/* Alternativa web: abre Outlook Web (outlook.office.com) en una pestaña nueva
+   con el correo prellenado. Útil cuando el Outlook de escritorio no responde
+   o el usuario prefiere trabajar en el navegador. La cuenta remitente será
+   la que tenga activa en su sesión de Microsoft 365. */
+function openOutlookWeb(){
+  var mail = corporateEmail(currentUser);
+  if(!mail){alert(fmtL("noCorpEmail",{U:currentUser})); return;}
+  var pending = getCurrentUserDispatches().filter(function(d){return d.status!=="sent";});
+  if(!pending.length){alert(L("noPendingMail")); return;}
+
+  var ext = (typeof ExcelJS !== "undefined") ? ".xlsx" : ".csv";
+  var excelFilename = "DESPACHOS_INVERNADERO_" + todayStrDDMMYYYY() + "_" + currentUser + ext;
+  downloadExcelFile(pending, excelFilename);
+
+  var totalBandejas = pending.reduce(function(s,d){return s + (+d.trays||0);}, 0);
+  var totalPlantas  = pending.reduce(function(s,d){return s + (+d.plants||0);}, 0);
+  var fechaInforme = new Date().toLocaleDateString("es-CL");
+
+  var subject = "DESPACHOS INVERNADERO - " + currentUser + " - " + fechaInforme;
+  var lineasCompactas = pending.map(function(d, i){
+    var f = farmerById(d.farmerId) || {};
+    var nombre = f.name || d.farmerName || "";
+    var fechaFmt = d.date.split("-").reverse().join("-");
+    return "[" + (i+1) + "] " + fechaFmt + " | " + nombre
+      + " | " + fmtNum(d.trays||0) + " bandejas | " + fmtNum(d.plants||0) + " plantas"
+      + " | SPS: " + (d.spsCode || "-") + " | Contrato: " + (d.contractNumber || "-");
+  }).join("\n");
+
+  var body = [
+    "Estimado equipo,",
+    "",
+    "Adjunto informe de despacho de bandejas de invernadero.",
+    "",
+    "Enviar desde: " + mail,
+    "",
+    "Resumen:",
+    lineasCompactas,
+    "",
+    "TOTALES: " + pending.length + " despachos | " + fmtNum(totalBandejas) + " bandejas | " + fmtNum(totalPlantas) + " plantas",
+    "",
+    "El detalle completo está en el Excel adjunto: " + excelFilename,
+    "",
+    "Saludos,",
+    currentUser
+  ].join("\n");
+
+  // URL de Outlook Web (deep link para redactar)
+  var url = "https://outlook.office.com/mail/deeplink/compose"
+    + "?to=" + encodeURIComponent(APP_CONFIG.recipientEmail)
+    + "&subject=" + encodeURIComponent(subject)
+    + "&body=" + encodeURIComponent(body);
+
+  window.open(url, "_blank", "noopener,noreferrer");
+
+  setTimeout(function(){
+    alert(
+      "✓ Se descargó el Excel y se abrió Outlook Web en una nueva pestaña.\n\n" +
+      "Si es la primera vez, inicie sesión con " + mail + ".\n\n" +
+      "PASOS:\n" +
+      "1. Verifique que el remitente sea " + mail + "\n" +
+      "2. Adjunte el archivo Excel: " + excelFilename + "\n" +
+      "3. Envíe el correo.\n" +
+      "4. Vuelva aquí y presione \"Marcar como enviados\"."
+    );
+  }, 1500);
+}
+
+function openOutlook(){
+  var mail = corporateEmail(currentUser);
+  if(!mail){alert(fmtL("noCorpEmail",{U:currentUser})); return;}
+  var pending = getCurrentUserDispatches().filter(function(d){return d.status!=="sent";});
+  if(!pending.length){alert(L("noPendingMail")); return;}
+
+  // 1. Auto-descarga el Excel con la misma información (para que el usuario lo adjunte)
+  var ext = (typeof ExcelJS !== "undefined") ? ".xlsx" : ".csv";
+  var excelFilename = "DESPACHOS_INVERNADERO_" + todayStrDDMMYYYY() + "_" + currentUser + ext;
+  downloadExcelFile(pending, excelFilename);
+
+  // 2. Calcula totales
+  var totalBandejas = pending.reduce(function(s,d){return s + (+d.trays||0);}, 0);
+  var totalPlantas  = pending.reduce(function(s,d){return s + (+d.plants||0);}, 0);
+  var totalSuperficie = pending.reduce(function(s,d){return s + (+d.superficieHa||0);}, 0);
+  var fechaInforme = new Date().toLocaleDateString("es-CL");
+
+  // 3. Construye el cuerpo del correo — VERSIÓN COMPACTA para evitar el límite
+  //    de longitud del mailto: (~2000 caracteres en Windows/Outlook).
+  //    El detalle completo va en el Excel adjunto.
+  var subject = "DESPACHOS INVERNADERO - " + currentUser + " - " + fechaInforme;
+
+  // Cada despacho en UNA sola línea compacta
+  var lineasCompactas = pending.map(function(d, i){
+    var f = farmerById(d.farmerId) || {};
+    var nombre = f.name || d.farmerName || "";
+    var fechaFmt = d.date.split("-").reverse().join("-");
+    return "[" + (i+1) + "] " + fechaFmt
+      + " | " + nombre
+      + " | " + fmtNum(d.trays||0) + " bandejas"
+      + " | " + fmtNum(d.plants||0) + " plantas"
+      + " | SPS: " + (d.spsCode || "-")
+      + " | Contrato: " + (d.contractNumber || "-");
+  }).join("\n");
+
+  var body = [
+    "Estimado equipo,",
+    "",
+    "Adjunto informe de despacho de bandejas de invernadero.",
+    "",
+    "IMPORTANTE: verifique que en el campo \"De\" (From) esté seleccionada",
+    "la cuenta " + mail + " antes de enviar este correo.",
+    "",
+    "----------------------------------------",
+    "Usuario:              " + currentUser,
+    "Enviar desde:         " + mail,
+    "Destinatario:         " + APP_CONFIG.recipientEmail,
+    "Fecha del informe:    " + fechaInforme,
+    "----------------------------------------",
+    "",
+    "Resumen de despachos pendientes:",
+    "",
+    lineasCompactas,
+    "",
+    "----------------------------------------",
+    "TOTALES:",
+    "  Despachos pendientes:   " + pending.length,
+    "  Total bandejas:         " + fmtNum(totalBandejas),
+    "  Total plantas:          " + fmtNum(totalPlantas),
+    "  Total superficie (HA):  " + totalSuperficie.toFixed(2),
+    "----------------------------------------",
+    "",
+    "El detalle completo (23 columnas del formato DESPACHOS_INVERNADERO)",
+    "se encuentra en el archivo Excel adjunto:",
+    excelFilename,
+    "",
+    "Saludos cordiales,",
+    currentUser
+  ].join("\n");
+
+  // 4. Espera a que termine la descarga del Excel, luego abre Outlook
+  var delay = (typeof ExcelJS !== "undefined") ? 1200 : 500;
+  setTimeout(function(){
+    // Método más confiable para abrir Outlook: crear un <a> y hacer click().
+    // Funciona en Chrome, Edge, Firefox mejor que window.location.href.
+    var mailtoUrl = "mailto:" + encodeURIComponent(APP_CONFIG.recipientEmail)
+      + "?subject=" + encodeURIComponent(subject)
+      + "&body=" + encodeURIComponent(body);
+
+    // Advertencia si la URL es sospechosamente larga (mailto tiene límite ~2000 chars)
+    if(mailtoUrl.length > 1900){
+      console.warn("Mailto URL length:", mailtoUrl.length, "— puede que Outlook no abra correctamente");
+    }
+
+    var link = document.createElement("a");
+    link.href = mailtoUrl;
+    link.target = "_self";
+    link.rel = "noopener";
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(function(){link.remove();}, 100);
+
+    // Instrucciones claras al usuario
+    setTimeout(function(){
+      alert(
+        "✓ Se descargó el archivo Excel y se abrió Outlook.\n\n" +
+        "REVISE ANTES DE ENVIAR:\n" +
+        "1. Campo \"De\" (From): seleccione " + mail + "\n" +
+        "   (si tiene varias cuentas configuradas en Outlook).\n" +
+        "2. Adjunte el archivo Excel descargado:\n" +
+        "   " + excelFilename + "\n" +
+        "3. Envíe el correo a " + APP_CONFIG.recipientEmail + ".\n" +
+        "4. Vuelva aquí y presione \"Marcar como enviados\".\n\n" +
+        "Si Outlook NO se abrió, verifique que sea su aplicación de\n" +
+        "correo predeterminada en Windows (Configuración → Aplicaciones\n" +
+        "→ Aplicaciones predeterminadas → Correo)."
+      );
+    }, 1000);
+  }, delay);
+}
+
+function markPendingSent(){
+  var pending = getCurrentUserDispatches().filter(function(d){return d.status!=="sent";});
+  if(!pending.length){alert(L("noPendingMail")); return;}
+  if(!confirm(fmtL("confirmMarkSent",{N:pending.length}))) return;
+  var pendingIds = {};
+  pending.forEach(function(d){pendingIds[d.id]=1;});
+  var stamp = new Date().toISOString();
+  for(var k in state.dispatches){
+    state.dispatches[k].forEach(function(d){
+      if(pendingIds[d.id]){d.status="sent"; d.sentAt=stamp;}
+    });
+  }
+  saveState();
+  renderAll();
+  alert(L("markedOk"));
+}
+
+/* ============================ Excel Export ============================ */
+
+/* Genera un archivo XLSX real con encabezado en color SPS navy + bordes en todas las celdas.
+   Si ExcelJS no está disponible (sin internet), cae automáticamente al CSV.
+   Misma información que el correo: 23 columnas del archivo de producción. */
+function downloadExcelFile(dispatches, filename){
+  if(!dispatches || !dispatches.length) return false;
+
+  // Si ExcelJS está cargado → genera .xlsx con formato completo
+  if(typeof ExcelJS !== "undefined"){
+    return downloadXLSXFile(dispatches, filename);
+  }
+  // Fallback: CSV (sin formato, pero abre en Excel)
+  return downloadCSVFile(dispatches, filename);
+}
+
+/* Versión XLSX con formato corporativo SPS (header navy + bordes). */
+function downloadXLSXFile(dispatches, filename){
+  var wb = new ExcelJS.Workbook();
+  wb.creator = "SPS Chile - Despacho de Bandejas";
+  wb.created = new Date();
+
+  var ws = wb.addWorksheet("DESPACHOS", {
+    properties: { tabColor: { argb: "FF14366E" } },
+    views: [{ state: "frozen", ySplit: 1 }]  // congela fila de encabezados
+  });
+
+  // === Fila de encabezado ===
+  ws.addRow(EXCEL_HEADERS);
+  var headerRow = ws.getRow(1);
+  headerRow.height = 32;
+  headerRow.eachCell(function(cell){
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF14366E" }  // SPS navy
+    };
+    cell.font = {
+      name: "Arial",
+      size: 10,
+      bold: true,
+      color: { argb: "FFFFFFFF" }
+    };
+    cell.alignment = {
+      vertical: "middle",
+      horizontal: "center",
+      wrapText: true
+    };
+    cell.border = {
+      top:    { style: "medium", color: { argb: "FF000000" } },
+      bottom: { style: "medium", color: { argb: "FF000000" } },
+      left:   { style: "thin",   color: { argb: "FF000000" } },
+      right:  { style: "thin",   color: { argb: "FF000000" } }
+    };
+  });
+
+  // === Filas de datos ===
+  dispatches.forEach(function(d){
+    var r = buildDispatchRow(d);
+    // Convertir fecha "YYYY-MM-DD" a Date real para Excel
+    var parts = (r.fecha || "").split("-");
+    var fechaDate = (parts.length === 3)
+      ? new Date(+parts[0], +parts[1]-1, +parts[2])
+      : r.fecha;
+
+    ws.addRow([
+      r.razonSocial,
+      r.rut,
+      r.contacto,
+      r.fono,
+      r.direccion,
+      r.comuna,
+      r.region,
+      r.spscode,
+      r.female,
+      r.male,
+      r.op,
+      r.superficieHa || null,
+      r.fieldman,
+      r.contrato,
+      fechaDate,
+      r.germinacion || null,    // 0-1 (Excel lo muestra como %)
+      r.bandejas || null,
+      r.plantas || null,
+      r.prioridad,
+      r.despachadasX,
+      r.haDespachadas || null,
+      r.plantasPorHa || null,
+      r.observaciones
+    ]);
+  });
+
+  // === Estilos de filas de datos (bordes en todas las celdas) ===
+  var lastDataRow = ws.rowCount;
+  var lastCol = EXCEL_HEADERS.length;
+  for(var rIdx = 2; rIdx <= lastDataRow; rIdx++){
+    var row = ws.getRow(rIdx);
+    row.height = 20;
+    for(var cIdx = 1; cIdx <= lastCol; cIdx++){
+      var cell = row.getCell(cIdx);
+      cell.border = {
+        top:    { style: "thin", color: { argb: "FF8AA0BC" } },
+        bottom: { style: "thin", color: { argb: "FF8AA0BC" } },
+        left:   { style: "thin", color: { argb: "FF8AA0BC" } },
+        right:  { style: "thin", color: { argb: "FF8AA0BC" } }
+      };
+      cell.alignment = { vertical: "middle", wrapText: false };
+      cell.font = { name: "Arial", size: 10 };
+      // zebra striping para filas pares
+      if(rIdx % 2 === 0){
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFF5F8FA" }
+        };
+      }
+    }
+  }
+
+  // === Formatos numéricos por columna ===
+  ws.getColumn(12).numFmt = '0.00';        // SUPERFICIE (HA)
+  ws.getColumn(15).numFmt = 'dd-mm-yyyy';  // FECHA DESPACHO
+  ws.getColumn(16).numFmt = '0.00%';       // GERMINACION (0-1 → %)
+  ws.getColumn(17).numFmt = '#,##0';       // N° BANDEJAS
+  ws.getColumn(18).numFmt = '#,##0';       // N° PLANTAS
+  ws.getColumn(21).numFmt = '0.0000';      // HA DESPACHADAS
+  ws.getColumn(22).numFmt = '#,##0';       // PLANTAS POR HA
+
+  // Centrar columnas tipo X
+  [9, 10, 19, 20].forEach(function(colIdx){
+    ws.getColumn(colIdx).alignment = { vertical: "middle", horizontal: "center" };
+  });
+
+  // === Fila de TOTALES ===
+  var totalBandejas = dispatches.reduce(function(s,d){return s + (+d.trays||0);}, 0);
+  var totalPlantas  = dispatches.reduce(function(s,d){return s + (+d.plants||0);}, 0);
+  var totalSuperficie = dispatches.reduce(function(s,d){return s + (+d.superficieHa||0);}, 0);
+
+  ws.addRow([]); // separador
+  var totalRowValues = new Array(EXCEL_HEADERS.length).fill("");
+  totalRowValues[0]  = "TOTALES";
+  totalRowValues[11] = totalSuperficie || null;
+  totalRowValues[16] = totalBandejas || null;
+  totalRowValues[17] = totalPlantas || null;
+  ws.addRow(totalRowValues);
+
+  var totalRow = ws.getRow(ws.rowCount);
+  totalRow.height = 26;
+  totalRow.eachCell({ includeEmpty: true }, function(cell, colNumber){
+    if(colNumber > lastCol) return;
+    cell.font = { name: "Arial", size: 11, bold: true, color: { argb: "FF14366E" } };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE8EFF8" }
+    };
+    cell.border = {
+      top:    { style: "medium", color: { argb: "FF14366E" } },
+      bottom: { style: "medium", color: { argb: "FF14366E" } },
+      left:   { style: "thin",   color: { argb: "FF14366E" } },
+      right:  { style: "thin",   color: { argb: "FF14366E" } }
+    };
+    cell.alignment = { vertical: "middle", horizontal: colNumber === 1 ? "left" : "center" };
+  });
+  // Reaplica formatos numéricos en totales
+  totalRow.getCell(12).numFmt = '0.00';
+  totalRow.getCell(17).numFmt = '#,##0';
+  totalRow.getCell(18).numFmt = '#,##0';
+
+  // === Anchos de columna ===
+  var widths = [32, 14, 24, 13, 34, 24, 16, 12, 8, 8, 10, 14, 11, 14, 13, 12, 11, 12, 10, 12, 14, 14, 32];
+  widths.forEach(function(w, i){
+    ws.getColumn(i + 1).width = w;
+  });
+
+  // === AutoFilter en el encabezado ===
+  ws.autoFilter = {
+    from: { row: 1, column: 1 },
+    to: { row: lastDataRow, column: lastCol }
+  };
+
+  // === Genera el archivo y descarga ===
+  var outName = (filename || "").replace(/\.csv$/i, ".xlsx");
+  if(!/\.xlsx$/i.test(outName)) outName += ".xlsx";
+
+  wb.xlsx.writeBuffer().then(function(buffer){
+    var blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = outName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function(){URL.revokeObjectURL(url);}, 1500);
+  }).catch(function(err){
+    console.error("Error generando XLSX, cayendo a CSV:", err);
+    downloadCSVFile(dispatches, filename);
+  });
+
+  return true;
+}
+
+/* Fallback CSV (si ExcelJS no carga por estar offline). */
+function downloadCSVFile(dispatches, filename){
+  var rows = [EXCEL_HEADERS.slice()];
+
+  dispatches.forEach(function(d){
+    var r = buildDispatchRow(d);
+    var parts = (r.fecha || "").split("-");
+    var fechaCelda = parts.length === 3 ? (parts[2]+"-"+parts[1]+"-"+parts[0]) : r.fecha;
+    rows.push([
+      r.razonSocial, r.rut, r.contacto, r.fono, r.direccion, r.comuna, r.region,
+      r.spscode, r.female, r.male, r.op, r.superficieHa || "",
+      r.fieldman, r.contrato, fechaCelda,
+      r.germinacion ? r.germinacion.toFixed(4) : "",
+      r.bandejas || "", r.plantas || "", r.prioridad, r.despachadasX,
+      r.haDespachadas ? r.haDespachadas.toFixed(4) : "",
+      r.plantasPorHa || "", r.observaciones
+    ]);
+  });
+
+  var totalBandejas = dispatches.reduce(function(s,d){return s + (+d.trays||0);}, 0);
+  var totalPlantas  = dispatches.reduce(function(s,d){return s + (+d.plants||0);}, 0);
+  rows.push([]);
+  var totalRow = new Array(EXCEL_HEADERS.length).fill("");
+  totalRow[0]  = "TOTALES";
+  totalRow[16] = totalBandejas;
+  totalRow[17] = totalPlantas;
+  rows.push(totalRow);
+
+  var csv = rows.map(function(r){
+    return r.map(csvEscape).join(";");
+  }).join("\r\n");
+
+  var blob = new Blob(["\uFEFF" + csv], {type:"text/csv;charset=utf-8;"});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = (filename || ("DESPACHOS_INVERNADERO_" + todayStrDDMMYYYY() + "_" + currentUser + ".csv")).replace(/\.xlsx$/i, ".csv");
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);}, 1000);
+  return true;
+}
+
+function todayStrDDMMYYYY(){
+  var d = new Date();
+  return String(d.getDate()).padStart(2,"0") + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + d.getFullYear();
+}
+
+function exportCSV(){
+  var visible = isAdmin() ? getAllDispatches() : getCurrentUserDispatches();
+  if(!visible.length){alert(L("noRecordsCSV")); return;}
+  var ext = (typeof ExcelJS !== "undefined") ? ".xlsx" : ".csv";
+  var filename = "DESPACHOS_INVERNADERO_" + todayStrDDMMYYYY() + "_" + currentUser + ext;
+  downloadExcelFile(visible, filename);
+}
+
+function getAllDispatches(){
+  var out = [];
+  for(var k in state.dispatches){
+    (state.dispatches[k]||[]).forEach(function(d){
+      out.push(Object.assign({date:k}, d));
+    });
+  }
+  return out.sort(function(a,b){return a.date.localeCompare(b.date);});
+}
+
+function csvEscape(value){
+  var t = String(value==null?"":value);
+  // Prevent CSV injection
+  if(/^[=+\-@]/.test(t)) t = "'"+t;
+  return '"'+t.replace(/"/g,'""')+'"';
+}
+
+/* ============================ Reset ============================ */
+function promptReset(){
+  if(!isAdmin()){alert("Solo un administrador puede resetear todos los datos."); return;}
+  var code = prompt(L("resetPrompt"));
+  if(code===null) return;
+  if(code !== APP_CONFIG.resetCode){alert(L("resetWrong")); return;}
+  if(!confirm(L("resetConfirm"))) return;
+  state.dispatches = {};
+  selDate = null;
+  saveState();
+  renderAll();
+  alert(L("resetDone"));
+}
+
+/* ============================ Export / Import JSON ============================ */
+function exportData(){
+  var blob = new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "despacho_bandejas_sps_"+todayStr()+".json";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function importData(ev){
+  var file = ev.target.files[0];
+  if(!file) return;
+  var r = new FileReader();
+  r.onload = function(){
+    try{
+      var d = JSON.parse(r.result);
+      if(!d.dispatches) throw 0;
+      state = d;
+      normalizeState();
+      saveState();
+      renderAll();
+      alert(L("importOk"));
+    }catch(e){alert(L("importErr"));}
+  };
+  r.readAsText(file);
+  ev.target.value = "";
+}
+
+/* ============================ SVG icons ============================ */
+function truedraw(p){return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">'+p+'</svg>';}
+function truckSvg(){return truedraw('<path d="M1 16V6a1 1 0 0 1 1-1h12v11M14 8h4l3 3v5M3 16h12M21 16h-3"/><circle cx="6.5" cy="18.5" r="1.5"/><circle cx="18.5" cy="18.5" r="1.5"/>');}
+function pinSvg(){return truedraw('<path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>');}
+function phoneSvg(){return truedraw('<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3-8.6A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7l.5 2.4a2 2 0 0 1-.5 1.9L8 9.1a16 16 0 0 0 6 6l1.1-1.1a2 2 0 0 1 1.9-.5l2.4.5a2 2 0 0 1 1.7 2z"/>');}
+function gpsSvg(){return truedraw('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>');}
+function okSvg(){return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#2e7d52" stroke-width="2.5"><path d="M5 12l5 5 9-11"/></svg>';}
+function warnSvg(){return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#b3261e" stroke-width="2.5"><path d="M12 8v5M12 17h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>';}
+function traySvgBig(){return '<svg viewBox="0 0 24 24" fill="none" stroke="#1F5BA6" stroke-width="1.6"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M9 6v12M15 6v12"/></svg>';}
+function mapsHref(f){
+  if(!f) return null;
+  if(f.mapsUrl && /^https?:\/\//i.test(f.mapsUrl)) return f.mapsUrl;
+  if(f.lat!=null && f.lng!=null) return "https://www.google.com/maps?q="+f.lat+","+f.lng;
+  return null;
+}
+
+function setLang(l){
+  lang = l;
+  applyStatic();
+  if(currentUser) renderAll();
+  if(document.getElementById("ovFarm").classList.contains("show")){renderFarmers(); renderFarmerForm();}
+  if(document.getElementById("ovCfg").classList.contains("show")) renderConfig();
+}
+
+/* ============================ Boot ============================ */
+document.addEventListener("DOMContentLoaded", function(){
+  applyStatic();
+  document.getElementById("usernameInput").addEventListener("keydown", function(e){
+    if(e.key==="Enter"){e.preventDefault(); document.getElementById("passwordInput").focus();}
+  });
+  document.getElementById("passwordInput").addEventListener("keydown", function(e){
+    if(e.key==="Enter"){e.preventDefault(); login();}
+  });
+
+  // Muestra loader mientras conecta con Firebase
+  showSharePointLoader();  // función existente, ahora sirve para Firebase también
+
+  loadState().then(function(){
+    hideSharePointLoader();
+    updateStoreNote();
+    if(!tryRestoreSession()){
+      document.getElementById("usernameInput").focus();
+    }
+  }).catch(function(err){
+    hideSharePointLoader();
+    console.error("Boot error:", err);
+    alert("Error al iniciar la aplicación: " + err.message);
+  });
+});
+
+function showSharePointLoader(){
+  var loader = document.createElement("div");
+  loader.id = "spLoader";
+  loader.innerHTML = ''
+    + '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,30,60,.85);'
+    + 'display:flex;flex-direction:column;align-items:center;justify-content:center;'
+    + 'z-index:99999;color:#fff;font-family:Arial,sans-serif;font-size:15px">'
+    + '<svg width="70" height="70" viewBox="0 0 100 100" style="margin-bottom:20px">'
+    + '<circle cx="50" cy="50" r="40" stroke="#fff" stroke-width="4" fill="none" opacity="0.25"/>'
+    + '<circle cx="50" cy="50" r="40" stroke="#f2c94c" stroke-width="4" fill="none" '
+    + 'stroke-linecap="round" stroke-dasharray="60 200">'
+    + '<animateTransform attributeName="transform" attributeType="XML" '
+    + 'type="rotate" from="0 50 50" to="360 50 50" dur="1s" repeatCount="indefinite"/>'
+    + '</circle></svg>'
+    + '<div style="font-weight:700;margin-bottom:5px;font-size:17px">🔥 Conectando con Firebase</div>'
+    + '<div style="opacity:.8;font-size:13px">Cargando datos sincronizados...</div>'
+    + '</div>';
+  document.body.appendChild(loader);
+}
+
+function hideSharePointLoader(){
+  var loader = document.getElementById("spLoader");
+  if(loader) loader.remove();
+}
+
+// Cross-tab sync (only when using localStorage fallback)
+window.addEventListener("storage", function(e){
+  if(e.key === STORAGE_KEY && storageMode === "local"){
+    try{
+      state = JSON.parse(e.newValue);
+      normalizeState();
+      renderAll();
+    }catch(err){}
+  }
+});
+</script>
+</body>
+</html>
