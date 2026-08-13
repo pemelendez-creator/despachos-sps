@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1F5BA6"/>
+      <stop offset="100%" stop-color="#14366E"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="90" fill="url(#bg)"/>
+  <text x="256" y="240" font-family="Arial Black, Arial, sans-serif" font-size="180" font-weight="900" fill="#fff" text-anchor="middle" letter-spacing="4">SPS</text>
+  <text x="256" y="330" font-family="Arial, sans-serif" font-size="56" font-weight="700" fill="#f2c94c" text-anchor="middle" letter-spacing="14">CHILE</text>
+  <g transform="translate(76 100)">
+    <path d="M 0 0 Q 40 -30 80 0 L 80 40 Q 40 60 0 40 Z" fill="#f2c94c" opacity="0.9"/>
+  </g>
+  <g transform="translate(370 380)" fill="#f2c94c" opacity="0.75">
+    <rect x="0" y="0" width="60" height="40" rx="4"/>
+    <line x1="15" y1="0" x2="15" y2="40" stroke="#14366E" stroke-width="2"/>
+    <line x1="30" y1="0" x2="30" y2="40" stroke="#14366E" stroke-width="2"/>
+    <line x1="45" y1="0" x2="45" y2="40" stroke="#14366E" stroke-width="2"/>
+    <line x1="0" y1="15" x2="60" y2="15" stroke="#14366E" stroke-width="2"/>
+    <line x1="0" y1="27" x2="60" y2="27" stroke="#14366E" stroke-width="2"/>
+  </g>
+</svg>
