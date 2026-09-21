@@ -1,0 +1,32 @@
+{
+  "name": "Despacho de Bandejas SPS Chile",
+  "short_name": "Despachos SPS",
+  "description": "Programador de despacho de bandejas de invernadero para SPS Chile",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#14366E",
+  "orientation": "any",
+  "lang": "es-CL",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
