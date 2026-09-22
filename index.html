@@ -381,6 +381,55 @@
     }
   }
 
+  /* ============ Campanita de alertas ============ */
+  .notifbell{
+    position:relative; flex:0 0 auto;
+    background:rgba(255,255,255,.12); color:#fff;
+    border:1px solid rgba(255,255,255,.28);
+    border-radius:10px; width:42px; height:38px;
+    font-size:17px; cursor:pointer; line-height:1;
+    display:inline-flex; align-items:center; justify-content:center;
+    font-family:inherit; padding:0;
+  }
+  .notifbell:hover{background:rgba(255,255,255,.22)}
+  .notifbell.haspending{
+    background:#f2c94c; border-color:#f2c94c;
+    animation: bellRing 1.4s ease-in-out 2;
+  }
+  .notifcount{
+    position:absolute; top:-7px; right:-7px;
+    background:#d93025; color:#fff;
+    font-size:11px; font-weight:800; font-family:inherit;
+    min-width:20px; height:20px; padding:0 5px;
+    border-radius:999px; display:flex; align-items:center; justify-content:center;
+    border:2px solid var(--navy); line-height:1;
+  }
+  @keyframes bellRing{
+    0%,100%{transform:rotate(0)}
+    15%{transform:rotate(-14deg)} 30%{transform:rotate(12deg)}
+    45%{transform:rotate(-9deg)} 60%{transform:rotate(7deg)}
+    75%{transform:rotate(-4deg)}
+  }
+
+  /* Aviso flotante de despacho nuevo */
+  #alertToast{
+    position:fixed; left:50%; bottom:-120px;
+    transform:translateX(-50%);
+    width:min(440px, calc(100vw - 24px));
+    background:var(--navy); color:#fff;
+    border-radius:12px; padding:14px 16px;
+    display:flex; align-items:center; gap:12px;
+    box-shadow:0 8px 28px rgba(0,0,0,.35);
+    z-index:60; cursor:pointer;
+    transition:bottom .38s cubic-bezier(.22,1,.36,1);
+    border:1px solid rgba(255,255,255,.18);
+  }
+  #alertToast.show{ bottom:20px; }
+  @media (max-width:720px){
+    #alertToast{ bottom:-140px; padding:13px 14px; }
+    #alertToast.show{ bottom:14px; }
+  }
+
   /* Botón instalar PWA */
   #pwaInstallBtn {
     position: fixed;
@@ -417,6 +466,7 @@
       <h1 id="t_title">Programador de Despacho de Bandejas</h1>
       <div class="sub" id="t_sub">South Pacific Seeds Chile · Invernaderos → Campo · Production Dept.</div>
     </div>
+    <button class="notifbell hidden" id="notifBtn" onclick="openNotifPanel()" title="Despachos nuevos">🔔</button>
     <span class="userpill hidden" id="userPill"></span>
     <button class="iconbtn hidden" id="logoutBtn" onclick="logout()">Cerrar sesión</button>
     <div class="langtog">
@@ -488,7 +538,7 @@
     <div class="toolbar">
       <button class="btn primary sm" onclick="openInventory()" style="background:#0f7d3d" title="Panel de producciones del invernadero — stock, alertas de vencimiento e importación del reporte">🌱 Inventario Invernadero</button>
       <button class="btn primary sm" onclick="openOutlook()" id="t_bmail">📧 Enviar pendientes (Outlook)</button>
-      <button class="btn ghost sm" onclick="openOutlookWeb()" title="Abre Outlook Web en el navegador (útil si el Outlook de escritorio no responde)">🌐 Outlook Web</button>
+      <button class="btn ghost sm" id="outlookWebBtn" onclick="openOutlookWeb()" title="Abre Outlook Web en el navegador (útil si el Outlook de escritorio no responde)">🌐 Outlook Web</button>
       <button class="btn success sm" onclick="markPendingSent()" id="t_bmark">Marcar como enviados</button>
       <button class="btn warn sm" onclick="openReturnsPanel()" title="Registrar bandejas devueltas por los agricultores">📦 Recuperación de bandejas</button>
       <button class="btn ghost sm" onclick="openConfig()" id="t_bcfg">Configuración</button>
@@ -530,6 +580,15 @@
     <button class="x" onclick="closeOv('ovInventory')">×</button>
   </div>
   <div class="mb" id="inventoryBody"></div>
+</div></div>
+
+<!-- Alertas de despachos nuevos modal -->
+<div class="ov" id="ovNotif"><div class="modal" style="max-width:560px">
+  <div class="mh">
+    <h3>🔔 Despachos nuevos</h3>
+    <button class="x" onclick="closeOv('ovNotif')">×</button>
+  </div>
+  <div class="mb" id="notifBody"></div>
 </div></div>
 
 <!-- Limpieza selectiva de datos modal -->
@@ -1126,14 +1185,21 @@ function setupRealtimeSync(){
 
   _realtimeUnsubs.push(FBApi.subscribeCollection("despachos", function(items){
     var newDispatches = {};
+    var flat = [];
     items.forEach(function(d){
       var date = d.date || "";
       if(!date) return;
+      var rec = Object.assign({}, d, {id: d._id});
       if(!newDispatches[date]) newDispatches[date] = [];
-      newDispatches[date].push(Object.assign({}, d, {id: d._id}));
+      newDispatches[date].push(rec);
+      flat.push(rec);
     });
     state.dispatches = newDispatches;
     normalizeState();
+
+    // Detectar despachos nuevos de otros usuarios y avisar
+    checkNewDispatchAlerts(flat);
+
     if(currentUser){
       renderAll();
       // Refresca paneles abiertos que dependen de despachos
@@ -1503,7 +1569,32 @@ function showApp(){
   document.getElementById("userPill").textContent = "👤 " + currentUser;
   document.getElementById("resetBtn").classList.toggle("hidden", !isAdmin());
   document.getElementById("diagBtn").classList.toggle("hidden", !isAdmin());
+
+  // Alertas de despachos nuevos
+  document.getElementById("notifBtn").classList.remove("hidden");
+  loadNotifState();
+  recomputePendingAlerts();
+  renderNotifBadge();
+  maybeAskNotifPermission();
+
   renderAll();
+}
+
+/* Pide permiso de notificaciones una sola vez, sin molestar al entrar */
+function maybeAskNotifPermission(){
+  if(!("Notification" in window)) return;
+  if(Notification.permission !== "default") return;
+  var askedKey = "sps_notif_asked_" + normalizeUser(currentUser);
+  try{ if(localStorage.getItem(askedKey)) return; }catch(e){}
+
+  setTimeout(function(){
+    if(!currentUser) return;
+    var ok = confirm("¿Quieres recibir aviso cuando alguien agende un despacho?\n\n"
+      + "Te llegará una notificación con sonido, aunque tengas la app\n"
+      + "en segundo plano. Puedes desactivarlo después desde la campanita 🔔.");
+    try{ localStorage.setItem(askedKey, "1"); }catch(e){}
+    if(ok) requestNotifPermission();
+  }, 2500);
 }
 
 function logout(){
@@ -1518,6 +1609,10 @@ function logout(){
   document.getElementById("appView").classList.add("hidden");
   document.getElementById("userPill").classList.add("hidden");
   document.getElementById("logoutBtn").classList.add("hidden");
+  document.getElementById("notifBtn").classList.add("hidden");
+  _notifReady = false;
+  _knownDispatchIds = {};
+  updateAppBadge(0);
   document.getElementById("usernameInput").value = "";
   var pi = document.getElementById("passwordInput"); if(pi) pi.value = "";
   document.getElementById("loginStatus").textContent = "";
@@ -1632,6 +1727,19 @@ function applyStatic(){
   var loginBtn = document.getElementById("loginBtn"); if(loginBtn) loginBtn.textContent = L("login_btn");
   var resetBtn = document.getElementById("resetBtn"); if(resetBtn) resetBtn.textContent = L("breset");
   var logoutBtn = document.getElementById("logoutBtn"); if(logoutBtn) logoutBtn.textContent = lang==="es"?"Cerrar sesión":"Sign out";
+
+  // En celular el botón de correo dice "Compartir informe" (usa el menú nativo)
+  var mailBtn = document.getElementById("t_bmail");
+  if(mailBtn && isMobileDevice() && canShareFiles()){
+    mailBtn.textContent = lang==="es" ? "📤 Compartir informe" : "📤 Share report";
+    mailBtn.title = lang==="es"
+      ? "Abre el menú para enviar por Gmail, WhatsApp, Outlook u otra app"
+      : "Opens the share menu: Gmail, WhatsApp, Outlook, etc.";
+  }
+  // En celular el botón de Outlook Web no aporta: se oculta
+  var owBtn = document.getElementById("outlookWebBtn");
+  if(owBtn) owBtn.style.display = (isMobileDevice() && canShareFiles()) ? "none" : "";
+
   document.getElementById("lg_es").classList.toggle("on", lang==="es");
   document.getElementById("lg_en").classList.toggle("on", lang==="en");
 }
@@ -3222,11 +3330,137 @@ function openOutlookWeb(){
   }, 1500);
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   ENVÍO DESDE CELULAR — usa el menú de compartir nativo
+   Evita depender de que el Mail del teléfono tenga bien configurado
+   el servidor SMTP. El usuario elige Gmail, WhatsApp, Outlook, etc.
+   ═══════════════════════════════════════════════════════════════════ */
+function shareReportMobile(pending, mail){
+  var rows = pending.map(buildDispatchRow);
+  var totalBandejas = rows.reduce(function(s,r){return s + r.bandejas;}, 0);
+  var totalPlantas  = rows.reduce(function(s,r){return s + r.plantas;}, 0);
+  var fechaInforme = new Date().toLocaleDateString("es-CL");
+  var ext = (typeof ExcelJS !== "undefined") ? ".xlsx" : ".csv";
+  var filename = "DESPACHOS_INVERNADERO_" + todayStrDDMMYYYY() + "_" + currentUser + ext;
+
+  // Resumen compacto (para el cuerpo del mensaje en el celular)
+  var lineas = rows.map(function(r, i){
+    var f = String(r.fecha||"").split("-").reverse().join("-");
+    return (i+1) + ") " + f + " · " + r.nombre
+      + " · " + fmtNum(r.bandejas) + " bandejas"
+      + (r.plantas ? " · " + fmtNum(r.plantas) + " plantas" : "")
+      + (r.spscode ? " · SPS " + r.spscode : "")
+      + (r.contrato ? " · Contrato " + r.contrato : "");
+  }).join("\n");
+
+  var texto = "DESPACHOS INVERNADERO\n"
+    + "Fieldman: " + currentUser + "\n"
+    + "Fecha: " + fechaInforme + "\n"
+    + "Para: " + APP_CONFIG.recipientEmail + "\n"
+    + "────────────────────\n"
+    + lineas + "\n"
+    + "────────────────────\n"
+    + "TOTAL: " + rows.length + " despachos · "
+    + fmtNum(totalBandejas) + " bandejas · "
+    + fmtNum(totalPlantas) + " plantas\n\n"
+    + "El detalle completo va en el archivo adjunto.";
+
+  var loading = document.createElement("div");
+  loading.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:600;z-index:99999";
+  loading.textContent = "Preparando informe...";
+  document.body.appendChild(loading);
+
+  buildReportFile(pending, filename).then(function(file){
+    if(loading.parentNode) loading.remove();
+
+    var shareData = {
+      title: "Despachos Invernadero - " + currentUser,
+      text: texto,
+      files: [file]
+    };
+
+    // Verificar que el navegador acepta compartir este archivo
+    if(navigator.canShare && navigator.canShare(shareData)){
+      return navigator.share(shareData);
+    }
+    // Si no acepta archivos, comparte solo el texto y descarga el Excel aparte
+    downloadExcelFile(pending, filename);
+    return navigator.share({
+      title: shareData.title,
+      text: texto + "\n\n(El archivo Excel se descargó en tu teléfono, adjúntalo manualmente)"
+    });
+
+  }).then(function(){
+    setTimeout(function(){
+      if(confirm("¿Enviaste el informe?\n\nSi ya lo enviaste, presiona Aceptar para marcarlo como enviado.")){
+        markPendingSent();
+      }
+    }, 900);
+
+  }).catch(function(err){
+    if(loading.parentNode) loading.remove();
+    // El usuario canceló el menú de compartir: no es un error
+    if(err && (err.name === "AbortError" || /abort|cancel/i.test(err.message||""))){
+      console.log("[Share] Cancelado por el usuario");
+      return;
+    }
+    console.error("[Share] Error:", err);
+    // Último recurso: descargar el archivo y copiar el texto
+    downloadExcelFile(pending, filename);
+    copyToClipboard(texto);
+    alert("No se pudo abrir el menú de compartir.\n\n"
+      + "Hicimos esto en su lugar:\n"
+      + "  • Se descargó el archivo del informe\n"
+      + "  • Se copió el resumen al portapapeles\n\n"
+      + "Abre tu correo o WhatsApp, pega el texto y adjunta el archivo descargado.\n\n"
+      + "Destinatario: " + APP_CONFIG.recipientEmail);
+  });
+}
+
+/* Copia texto al portapapeles (con respaldo para navegadores viejos) */
+function copyToClipboard(text){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).catch(function(){ _fallbackCopy(text); });
+  } else {
+    _fallbackCopy(text);
+  }
+}
+function _fallbackCopy(text){
+  try{
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;left:-9999px;top:0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }catch(e){ console.warn("No se pudo copiar:", e); }
+}
+
+/* ¿Estamos en un celular o tablet? */
+function isMobileDevice(){
+  return /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+}
+
+/* ¿El navegador puede compartir archivos por el menú nativo? */
+function canShareFiles(){
+  return typeof navigator.share === "function"
+    && typeof navigator.canShare === "function"
+    && typeof File !== "undefined";
+}
+
 function openOutlook(){
   var mail = corporateEmail(currentUser);
   if(!mail){alert(fmtL("noCorpEmail",{U:currentUser})); return;}
   var pending = getCurrentUserDispatches().filter(function(d){return d.status!=="sent";});
   if(!pending.length){alert(L("noPendingMail")); return;}
+
+  // En celular: usar el menú de compartir nativo (evita problemas de SMTP del Mail)
+  if(isMobileDevice() && canShareFiles()){
+    shareReportMobile(pending, mail);
+    return;
+  }
 
   // 1. Prepara los datos (mismos que van al Excel)
   var rows = pending.map(buildDispatchRow);
@@ -3295,7 +3529,7 @@ function openOutlook(){
     currentUser
   ].join("\n");
 
-  // 5. Espera a que termine la descarga del Excel, luego abre Outlook
+  // 5. Envío: en móvil usa el menú de compartir nativo, en PC abre Outlook
   var delay = (typeof ExcelJS !== "undefined") ? 1200 : 500;
   setTimeout(function(){
     var mailtoUrl = "mailto:" + encodeURIComponent(APP_CONFIG.recipientEmail)
@@ -3368,7 +3602,7 @@ function downloadExcelFile(dispatches, filename){
 }
 
 /* Versión XLSX con formato corporativo SPS (header navy + bordes). */
-function downloadXLSXFile(dispatches, filename){
+function downloadXLSXFile(dispatches, filename, opts){
   var wb = new ExcelJS.Workbook();
   wb.creator = "SPS Chile - Despacho de Bandejas";
   wb.created = new Date();
@@ -3514,6 +3748,15 @@ function downloadXLSXFile(dispatches, filename){
   var outName = (filename || "").replace(/\.csv$/i, ".xlsx");
   if(!/\.xlsx$/i.test(outName)) outName += ".xlsx";
 
+  // Si se pidió el Blob (para compartir en móvil), lo devolvemos sin descargar
+  if(opts && opts.returnBlob){
+    return wb.xlsx.writeBuffer().then(function(buffer){
+      return new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+    });
+  }
+
   wb.xlsx.writeBuffer().then(function(buffer){
     var blob = new Blob([buffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -3532,6 +3775,32 @@ function downloadXLSXFile(dispatches, filename){
   });
 
   return true;
+}
+
+/* Devuelve una Promise con el archivo Excel/CSV listo para compartir (sin descargarlo) */
+function buildReportFile(dispatches, filename){
+  if(typeof ExcelJS !== "undefined"){
+    try{
+      var p = downloadXLSXFile(dispatches, filename, {returnBlob: true});
+      if(p && typeof p.then === "function"){
+        return p.then(function(blob){
+          return new File([blob], filename.replace(/\.csv$/i, ".xlsx"), {type: blob.type});
+        });
+      }
+    }catch(e){ console.warn("XLSX no disponible, usando CSV:", e); }
+  }
+  // Fallback: CSV en memoria
+  var rows = [EXCEL_HEADERS.slice()];
+  dispatches.forEach(function(d){
+    var r = buildDispatchRow(d);
+    var parts = (r.fecha || "").split("-");
+    var fechaCelda = parts.length === 3 ? (parts[2]+"-"+parts[1]+"-"+parts[0]) : r.fecha;
+    rows.push([fechaCelda, r.nombre, r.direccion, r.fono, r.bandejas||"", r.plantas||"", r.spscode, r.contrato]);
+  });
+  var csv = rows.map(function(r){ return r.map(csvEscape).join(";"); }).join("\r\n");
+  var blob = new Blob(["﻿" + csv], {type: "text/csv;charset=utf-8;"});
+  var name = filename.replace(/\.xlsx$/i, ".csv");
+  return Promise.resolve(new File([blob], name, {type: blob.type}));
 }
 
 /* Fallback CSV (si ExcelJS no carga por estar offline). */
@@ -5136,6 +5405,320 @@ function openSeasonManager(){
 /* ═══════════════════════════════════════════════════════════════════
    FIN MÓDULO INVENTARIO
    ═══════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════
+   ALERTAS DE DESPACHOS NUEVOS
+   Suena, vibra, muestra notificación del sistema y pone el contador
+   en el ícono de la app (como WhatsApp).
+   ═══════════════════════════════════════════════════════════════════ */
+
+var NOTIF_KEY = "sps_notif_state";
+var _notifReady = false;      // evita avisar al cargar la app por primera vez
+var _knownDispatchIds = {};   // ids ya vistos en esta sesión
+var notifState = { lastSeen: "", muted: false, pending: [] };
+
+function loadNotifState(){
+  try{
+    var raw = localStorage.getItem(NOTIF_KEY + "_" + normalizeUser(currentUser));
+    if(raw){
+      var s = JSON.parse(raw);
+      notifState.lastSeen = s.lastSeen || "";
+      notifState.muted = !!s.muted;
+    }
+  }catch(e){}
+  if(!notifState.lastSeen) notifState.lastSeen = new Date().toISOString();
+}
+
+function saveNotifState(){
+  try{
+    localStorage.setItem(NOTIF_KEY + "_" + normalizeUser(currentUser), JSON.stringify({
+      lastSeen: notifState.lastSeen,
+      muted: notifState.muted
+    }));
+  }catch(e){}
+}
+
+/* Revisa la lista de despachos y avisa si hay nuevos de OTROS usuarios */
+function checkNewDispatchAlerts(allDispatches){
+  if(!currentUser) return;
+
+  // Primera carga: solo registrar lo que ya existe, sin avisar
+  if(!_notifReady){
+    allDispatches.forEach(function(d){ if(d.id) _knownDispatchIds[d.id] = true; });
+    _notifReady = true;
+    recomputePendingAlerts(allDispatches);
+    renderNotifBadge();
+    return;
+  }
+
+  var nuevos = allDispatches.filter(function(d){
+    if(!d.id || _knownDispatchIds[d.id]) return false;
+    _knownDispatchIds[d.id] = true;
+    // No avisar de mis propios despachos
+    if(normalizeUser(d.user) === normalizeUser(currentUser)) return false;
+    return true;
+  });
+
+  if(!nuevos.length){
+    recomputePendingAlerts(allDispatches);
+    renderNotifBadge();
+    return;
+  }
+
+  recomputePendingAlerts(allDispatches);
+  renderNotifBadge();
+
+  if(!notifState.muted){
+    playAlertSound();
+    vibrateAlert();
+  }
+  showSystemNotification(nuevos);
+  flashScreenAlert(nuevos);
+}
+
+/* Cuenta los despachos no leídos (creados después de lastSeen, por otros) */
+function recomputePendingAlerts(allDispatches){
+  var list = allDispatches || [];
+  if(!allDispatches){
+    list = [];
+    for(var k in state.dispatches){
+      (state.dispatches[k]||[]).forEach(function(d){ list.push(d); });
+    }
+  }
+  notifState.pending = list.filter(function(d){
+    if(normalizeUser(d.user) === normalizeUser(currentUser)) return false;
+    var created = d.createdAt || "";
+    return created && created > notifState.lastSeen;
+  }).sort(function(a,b){
+    return String(b.createdAt||"").localeCompare(String(a.createdAt||""));
+  });
+}
+
+/* Sonido de alerta generado con Web Audio (no necesita archivo) */
+function playAlertSound(){
+  try{
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    var ctx = new AC();
+    // Dos tonos cortos ascendentes
+    [[880, 0], [1175, 0.16]].forEach(function(pair){
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = pair[0];
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + pair[1]);
+      gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + pair[1] + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + pair[1] + 0.14);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + pair[1]);
+      osc.stop(ctx.currentTime + pair[1] + 0.15);
+    });
+    setTimeout(function(){ try{ ctx.close(); }catch(e){} }, 800);
+  }catch(e){ console.warn("[Alerta] Sin sonido:", e.message); }
+}
+
+/* Vibración (Android; iOS no la soporta desde el navegador) */
+function vibrateAlert(){
+  try{
+    if(navigator.vibrate) navigator.vibrate([220, 110, 220]);
+  }catch(e){}
+}
+
+/* Notificación del sistema operativo */
+function showSystemNotification(nuevos){
+  if(!("Notification" in window)) return;
+  if(Notification.permission !== "granted") return;
+
+  var n = nuevos.length;
+  var titulo = n === 1 ? "Nuevo despacho solicitado" : n + " despachos nuevos";
+  var d = nuevos[0];
+  var f = farmerById(d.farmerId);
+  var cuerpo = n === 1
+    ? (d.user || "Alguien") + " agendó " + fmtNum(d.trays||0) + " bandejas"
+        + (f ? " para " + f.name : "")
+        + (d.date ? " · " + String(d.date).split("-").reverse().join("-") : "")
+    : "Revisa el calendario para ver el detalle";
+
+  try{
+    var notif = new Notification(titulo, {
+      body: cuerpo,
+      icon: "icon-192.png",
+      badge: "icon-192.png",
+      tag: "sps-despacho",
+      renotify: true,
+      requireInteraction: false
+    });
+    notif.onclick = function(){
+      window.focus();
+      openNotifPanel();
+      notif.close();
+    };
+  }catch(e){ console.warn("[Alerta] Notificación falló:", e.message); }
+}
+
+/* Contador en el ícono de la app (como WhatsApp) */
+function updateAppBadge(count){
+  try{
+    if(navigator.setAppBadge){
+      if(count > 0) navigator.setAppBadge(count);
+      else if(navigator.clearAppBadge) navigator.clearAppBadge();
+    }
+  }catch(e){}
+  // También en el título de la pestaña
+  var base = "Despacho de Bandejas · SPS Chile";
+  document.title = count > 0 ? "(" + count + ") " + base : base;
+}
+
+/* Aviso visual flotante dentro de la app */
+function flashScreenAlert(nuevos){
+  var old = document.getElementById("alertToast");
+  if(old) old.remove();
+
+  var n = nuevos.length;
+  var d = nuevos[0];
+  var f = farmerById(d.farmerId);
+
+  var toast = document.createElement("div");
+  toast.id = "alertToast";
+  toast.onclick = function(){ openNotifPanel(); toast.remove(); };
+  toast.innerHTML = '<div style="font-size:22px;flex:0 0 auto">📦</div>'
+    + '<div style="flex:1;min-width:0">'
+    + '<div style="font-weight:700;font-size:14px">'
+    + (n === 1 ? "Nuevo despacho solicitado" : n + " despachos nuevos")
+    + '</div>'
+    + '<div style="font-size:12.5px;opacity:.9;margin-top:2px">'
+    + esc((d.user || "Alguien") + " · " + fmtNum(d.trays||0) + " bandejas"
+        + (f ? " · " + f.name : ""))
+    + '</div></div>'
+    + '<div style="font-size:11px;opacity:.7;flex:0 0 auto">Ver</div>';
+  document.body.appendChild(toast);
+
+  requestAnimationFrame(function(){ toast.classList.add("show"); });
+  setTimeout(function(){
+    toast.classList.remove("show");
+    setTimeout(function(){ if(toast.parentNode) toast.remove(); }, 400);
+  }, 7000);
+}
+
+/* Campanita en el header con el contador */
+function renderNotifBadge(){
+  var btn = document.getElementById("notifBtn");
+  if(!btn) return;
+  var n = (notifState.pending || []).length;
+  btn.innerHTML = '🔔' + (n > 0 ? '<span class="notifcount">' + (n > 99 ? "99+" : n) + '</span>' : '');
+  btn.classList.toggle("haspending", n > 0);
+  updateAppBadge(n);
+}
+
+/* Panel con la lista de despachos nuevos */
+function openNotifPanel(){
+  recomputePendingAlerts();
+  var body = document.getElementById("notifBody");
+  var list = notifState.pending || [];
+
+  var html = '';
+
+  // Control de sonido
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;'
+    + 'padding:10px 12px;background:var(--blue-soft);border:1px solid var(--blue-line);border-radius:8px;margin-bottom:14px">'
+    + '<label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:normal;color:var(--navy);font-size:13.5px;margin:0">'
+    + '<input type="checkbox" id="notif_sound" ' + (notifState.muted ? "" : "checked") + ' '
+    + 'style="width:auto;min-height:auto;margin:0" onchange="toggleNotifSound(this.checked)">'
+    + '<span>Sonido y vibración al llegar un despacho</span></label>'
+    + '</div>';
+
+  // Estado del permiso de notificaciones
+  if("Notification" in window && Notification.permission !== "granted"){
+    html += '<div style="padding:12px;background:var(--warn-soft);border:1px solid #f0d9ab;border-radius:8px;margin-bottom:14px">'
+      + '<div style="font-weight:700;color:var(--warn);font-size:13.5px;margin-bottom:6px">🔕 Notificaciones desactivadas</div>'
+      + '<div style="font-size:12.5px;color:var(--ink);margin-bottom:10px">'
+      + 'Actívalas para recibir aviso aunque tengas la app en segundo plano.</div>'
+      + '<button class="btn primary sm" onclick="requestNotifPermission()">Activar notificaciones</button>'
+      + '</div>';
+  }
+
+  if(!list.length){
+    html += '<div class="empty" style="padding:30px 12px">'
+      + '<div style="font-size:36px;opacity:.3;margin-bottom:8px">🔔</div>'
+      + '<div>No hay despachos nuevos sin revisar.</div></div>';
+  } else {
+    html += '<div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">'
+      + list.length + ' despacho(s) agendados por otros usuarios desde tu última revisión</div>';
+
+    list.slice(0, 40).forEach(function(d){
+      var f = farmerById(d.farmerId);
+      var fecha = String(d.date||"").split("-").reverse().join("-");
+      var cuando = d.createdAt ? new Date(d.createdAt).toLocaleString("es-CL", {day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"}) : "";
+      html += '<div style="border:1px solid var(--line);border-left:3px solid var(--navy);border-radius:8px;'
+        + 'padding:11px 13px;margin-bottom:8px;cursor:pointer" onclick="goToDispatch(\'' + d.date + '\')">'
+        + '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">'
+        + '<strong style="color:var(--navy)">' + esc(f ? f.name : (d.farmerName||"—")) + '</strong>'
+        + '<span style="background:var(--blue-soft);color:var(--navy);font-weight:800;font-size:12.5px;padding:2px 9px;border-radius:6px">'
+        + fmtNum(d.trays||0) + ' bandejas</span></div>'
+        + '<div style="font-size:12.5px;color:var(--muted);margin-top:5px">'
+        + 'Despacho: <strong>' + fecha + '</strong>'
+        + ' · Solicitó: <strong>' + esc(d.user||"—") + '</strong>'
+        + (d.spsCode ? ' · SPS ' + esc(d.spsCode) : '')
+        + '</div>'
+        + (cuando ? '<div style="font-size:11.5px;color:var(--muted);margin-top:3px">Agendado ' + cuando + '</div>' : '')
+        + '</div>';
+    });
+
+    html += '<button class="btn primary" style="width:100%;margin-top:12px" onclick="markAlertsRead()">'
+      + 'Marcar todos como revisados</button>';
+  }
+
+  body.innerHTML = html;
+  document.getElementById("ovNotif").classList.add("show");
+}
+
+function goToDispatch(date){
+  closeOv("ovNotif");
+  selDate = date;
+  // Mover el calendario al mes correcto
+  var p = String(date).split("-");
+  if(p.length === 3){
+    view = new Date(+p[0], +p[1]-1, 1);
+  }
+  renderCalendar();
+  renderPanel();
+  var panel = document.getElementById("panel");
+  if(panel && panel.scrollIntoView) panel.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+function markAlertsRead(){
+  notifState.lastSeen = new Date().toISOString();
+  notifState.pending = [];
+  saveNotifState();
+  renderNotifBadge();
+  closeOv("ovNotif");
+}
+
+function toggleNotifSound(enabled){
+  notifState.muted = !enabled;
+  saveNotifState();
+  if(enabled) playAlertSound();  // prueba inmediata
+}
+
+function requestNotifPermission(){
+  if(!("Notification" in window)){
+    alert("Este navegador no soporta notificaciones del sistema.");
+    return;
+  }
+  Notification.requestPermission().then(function(perm){
+    if(perm === "granted"){
+      new Notification("Notificaciones activadas ✓", {
+        body: "Te avisaremos cuando alguien agende un despacho.",
+        icon: "icon-192.png"
+      });
+      openNotifPanel();  // refrescar el panel
+    } else {
+      alert("No se activaron las notificaciones.\n\n"
+        + "Puedes activarlas después desde los ajustes del navegador,\n"
+        + "en la sección de permisos del sitio.");
+    }
+  });
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    PWA — Instalación como app y funcionamiento offline
