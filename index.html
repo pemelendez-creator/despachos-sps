@@ -500,7 +500,7 @@
       <button class="btn ghost sm" onclick="document.getElementById('imp').click()" id="t_bimp">Importar</button>
       <button class="btn ghost sm" onclick="window.print()" id="t_bprint">Imprimir</button>
       <button class="btn ghost sm hidden" onclick="showDiagnostics()" id="diagBtn" title="Ver estado de sincronización con Firebase">🔍 Diagnóstico</button>
-      <button class="btn danger sm hidden" onclick="promptReset()" id="resetBtn">Resetear todo</button>
+      <button class="btn danger sm hidden" onclick="promptReset()" id="resetBtn" title="Eliminar datos seleccionados">🧹 Limpiar datos</button>
       <input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(event)">
       <span class="storenote" id="storenote"></span>
     </div>
@@ -530,6 +530,15 @@
     <button class="x" onclick="closeOv('ovInventory')">×</button>
   </div>
   <div class="mb" id="inventoryBody"></div>
+</div></div>
+
+<!-- Limpieza selectiva de datos modal -->
+<div class="ov" id="ovCleanup"><div class="modal" style="max-width:620px">
+  <div class="mh">
+    <h3>🧹 Limpieza de datos</h3>
+    <button class="x" onclick="closeOv('ovCleanup')">×</button>
+  </div>
+  <div class="mb" id="cleanupBody"></div>
 </div></div>
 
 <!-- Mapeo FM → Usuario modal -->
@@ -829,7 +838,7 @@ var T = {
   bcsv:{es:"📊 Exportar a Excel",en:"📊 Export to Excel"},bexp:{es:"Exportar JSON",en:"Export JSON"},
   bimp:{es:"Importar",en:"Import"},bmail:{es:"📧 Enviar pendientes (Outlook)",en:"📧 Send pending (Outlook)"},
   bmark:{es:"Marcar como enviados",en:"Mark as sent"},bprint:{es:"Imprimir",en:"Print"},
-  breset:{es:"Resetear todo",en:"Reset everything"},
+  breset:{es:"🧹 Limpiar datos",en:"🧹 Clean up data"},
   foot:{es:"South Pacific Seeds Chile S.A. — Production Dept. · Herramienta interna de programación logística.",en:"South Pacific Seeds Chile S.A. — Production Dept. · Internal logistics scheduling tool."},
   detail:{es:"Detalle",en:"Detail"},
   emptySel:{es:"Selecciona un día en el calendario para ver su capacidad y programar despachos.",en:"Pick a day on the calendar to see its capacity and schedule dispatches."},
@@ -3601,115 +3610,372 @@ function csvEscape(value){
 }
 
 /* ============================ Reset ============================ */
-async function promptReset(){
-  if(!isAdmin()){alert("Solo un administrador puede resetear todos los datos."); return;}
-  var code = prompt(L("resetPrompt"));
-  if(code===null) return;
-  if(code !== APP_CONFIG.resetCode){alert(L("resetWrong")); return;}
+/* ═══════════════════════════════════════════════════════════════════
+   LIMPIEZA SELECTIVA DE DATOS
+   El admin elige exactamente qué borrar, con filtros por fecha.
+   ═══════════════════════════════════════════════════════════════════ */
 
-  var msg = "⚠ ATENCIÓN: RESETEO TOTAL\n\n"
-    + "Esta acción eliminará TODOS los datos operativos:\n\n"
-    + "  • " + Object.keys(state.dispatches).reduce(function(s,k){return s+state.dispatches[k].length;},0) + " despachos programados\n"
-    + "  • " + (state.returns||[]).length + " devoluciones registradas\n"
-    + "  • " + (state.productions||[]).length + " producciones del invernadero\n"
-    + "  • Mapeo FM → Usuario\n"
-    + "  • Historial de temporadas\n\n"
-    + "SE MANTIENEN:\n"
-    + "  • Los " + state.farmers.length + " agricultores (base maestra)\n"
-    + "  • Configuración de camiones y bodega\n\n"
-    + "Esta acción NO se puede deshacer.\n\n¿Confirmar?";
-  if(!confirm(msg)) return;
+function promptReset(){
+  if(!isAdmin()){alert("Solo un administrador puede limpiar datos."); return;}
+  document.getElementById("ovCleanup").classList.add("show");
+  renderCleanupPanel();
+}
+
+/* Cuenta despachos anteriores a una fecha (o todos si no se da fecha) */
+function countDispatches(beforeDate){
+  var n = 0;
+  for(var k in state.dispatches){
+    if(beforeDate && k >= beforeDate) continue;
+    n += (state.dispatches[k]||[]).length;
+  }
+  return n;
+}
+
+function countReturns(beforeDate){
+  return (state.returns||[]).filter(function(r){
+    if(!beforeDate) return true;
+    return (r.date || "") < beforeDate;
+  }).length;
+}
+
+/* Producciones: todas / solo agotadas / solo de otras temporadas */
+function countProductions(filter){
+  return (state.productions||[]).filter(function(p){
+    if(filter === "agotadas"){
+      var snap = getProductionSnapshot(p);
+      return snap.stockBandejas <= 0;
+    }
+    if(filter === "otrastemp"){
+      return p.season && p.season !== state.season;
+    }
+    return true;
+  }).length;
+}
+
+function renderCleanupPanel(){
+  var body = document.getElementById("cleanupBody");
+
+  // Fecha por defecto para los filtros: hace 3 meses
+  var d = new Date();
+  d.setMonth(d.getMonth() - 3);
+  var defaultDate = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+
+  var totalDisp = countDispatches();
+  var totalRet = (state.returns||[]).length;
+  var totalProd = (state.productions||[]).length;
+  var nFM = Object.keys(state.fmMapping||{}).length;
+  var nTemp = Object.keys(state.archivedSeasons||{}).length;
+
+  var html = ''
+    + '<p style="font-size:13px;color:var(--muted);margin-bottom:16px">'
+    + 'Marca solo lo que quieras eliminar. Lo que no marques queda intacto. '
+    + 'Los <strong>' + state.farmers.length + ' agricultores</strong> y la configuración de camiones nunca se borran desde aquí.'
+    + '</p>';
+
+  // === DESPACHOS ===
+  html += cleanupSection({
+    id: 'disp',
+    icon: '📦',
+    title: 'Despachos programados',
+    total: totalDisp,
+    color: 'var(--navy)',
+    options: [
+      {value:'todos', label:'Todos los despachos', count: totalDisp},
+      {value:'antiguos', label:'Solo los anteriores a una fecha', dateInput:true, date: defaultDate}
+    ]
+  });
+
+  // === DEVOLUCIONES ===
+  html += cleanupSection({
+    id: 'ret',
+    icon: '↩️',
+    title: 'Devoluciones de bandejas',
+    total: totalRet,
+    color: 'var(--ok)',
+    options: [
+      {value:'todos', label:'Todas las devoluciones', count: totalRet},
+      {value:'antiguos', label:'Solo las anteriores a una fecha', dateInput:true, date: defaultDate}
+    ]
+  });
+
+  // === PRODUCCIONES ===
+  html += cleanupSection({
+    id: 'prod',
+    icon: '🌱',
+    title: 'Producciones del invernadero',
+    total: totalProd,
+    color: '#0f7d3d',
+    options: [
+      {value:'todos', label:'Todas las producciones', count: totalProd},
+      {value:'agotadas', label:'Solo las agotadas (sin stock)', count: countProductions('agotadas')},
+      {value:'otrastemp', label:'Solo las de temporadas anteriores', count: countProductions('otrastemp')}
+    ]
+  });
+
+  // === CONFIGURACIÓN ===
+  html += '<div style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px">'
+    + '<div style="font-weight:700;color:var(--navy);margin-bottom:10px">⚙️ Configuración del inventario</div>'
+    + '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;cursor:pointer;font-weight:normal;color:var(--ink)">'
+    + '<input type="checkbox" id="cl_fm" style="width:auto;min-height:auto;margin:0">'
+    + '<span>Mapeo FM → Usuario <span style="color:var(--muted);font-size:12px">(' + nFM + ' asignaciones)</span></span></label>'
+    + '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;cursor:pointer;font-weight:normal;color:var(--ink)">'
+    + '<input type="checkbox" id="cl_temp" style="width:auto;min-height:auto;margin:0">'
+    + '<span>Historial de temporadas archivadas <span style="color:var(--muted);font-size:12px">(' + nTemp + ')</span></span></label>'
+    + '</div>';
+
+  // === RESUMEN + CONFIRMACIÓN ===
+  html += '<div id="cleanupSummary" style="background:var(--blue-soft);border:1px solid var(--blue-line);border-radius:10px;padding:14px;margin:16px 0;font-size:13.5px">'
+    + '<span style="color:var(--muted)">Marca alguna opción para ver el resumen.</span></div>';
+
+  html += '<label class="fl">Código de seguridad</label>'
+    + '<input type="password" id="cl_code" placeholder="Ingrese el código de administrador" autocomplete="off">';
+
+  html += '<div style="display:flex;gap:10px;margin-top:16px">'
+    + '<button class="btn ghost" style="flex:1" onclick="closeOv(\'ovCleanup\')">Cancelar</button>'
+    + '<button class="btn danger" style="flex:2" id="cl_exec" onclick="executeCleanup()">Eliminar lo seleccionado</button>'
+    + '</div>';
+
+  body.innerHTML = html;
+  updateCleanupSummary();
+}
+
+/* Genera una sección con checkbox principal + opciones de filtro */
+function cleanupSection(cfg){
+  var disabled = cfg.total === 0;
+  var html = '<div style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px' + (disabled ? ';opacity:.5' : '') + '">'
+    + '<label style="display:flex;align-items:center;gap:10px;cursor:' + (disabled?'not-allowed':'pointer') + ';font-weight:700;color:' + cfg.color + '">'
+    + '<input type="checkbox" id="cl_' + cfg.id + '" style="width:auto;min-height:auto;margin:0" '
+    + (disabled ? 'disabled' : 'onchange="toggleCleanupSection(\'' + cfg.id + '\');updateCleanupSummary()"') + '>'
+    + '<span>' + cfg.icon + ' ' + cfg.title + '</span>'
+    + '<span style="margin-left:auto;font-weight:normal;font-size:12.5px;color:var(--muted)">' + fmtNum(cfg.total) + ' registros</span>'
+    + '</label>';
+
+  if(!disabled){
+    html += '<div id="clopts_' + cfg.id + '" style="display:none;margin-top:12px;padding-left:28px;border-left:2px solid var(--line)">';
+    cfg.options.forEach(function(opt, i){
+      html += '<label style="display:flex;align-items:center;gap:9px;padding:7px 0;cursor:pointer;font-weight:normal;color:var(--ink);font-size:14px">'
+        + '<input type="radio" name="clmode_' + cfg.id + '" value="' + opt.value + '" '
+        + (i===0 ? 'checked' : '') + ' style="width:auto;min-height:auto;margin:0" onchange="updateCleanupSummary()">'
+        + '<span>' + opt.label
+        + (opt.count != null ? ' <span style="color:var(--muted);font-size:12.5px">(' + fmtNum(opt.count) + ')</span>' : '')
+        + '</span></label>';
+      if(opt.dateInput){
+        html += '<div style="padding:4px 0 8px 27px">'
+          + '<input type="date" id="cldate_' + cfg.id + '" value="' + opt.date + '" '
+          + 'onchange="updateCleanupSummary()" style="max-width:190px;font-size:14px;padding:8px 10px">'
+          + '<div style="font-size:11.5px;color:var(--muted);margin-top:4px">Se borra todo lo anterior a esta fecha</div>'
+          + '</div>';
+      }
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function toggleCleanupSection(id){
+  var cb = document.getElementById("cl_" + id);
+  var opts = document.getElementById("clopts_" + id);
+  if(opts) opts.style.display = cb.checked ? "block" : "none";
+}
+
+/* Calcula qué se va a borrar según lo marcado */
+function getCleanupPlan(){
+  var plan = {dispatches: [], returns: [], productions: [], fmMapping: false, seasons: false};
+
+  // Despachos
+  if(document.getElementById("cl_disp") && document.getElementById("cl_disp").checked){
+    var mode = document.querySelector('input[name="clmode_disp"]:checked');
+    var before = null;
+    if(mode && mode.value === "antiguos"){
+      var dEl = document.getElementById("cldate_disp");
+      before = dEl ? dEl.value : null;
+    }
+    for(var k in state.dispatches){
+      if(before && k >= before) continue;
+      (state.dispatches[k]||[]).forEach(function(d){
+        plan.dispatches.push({id: d.id, date: k});
+      });
+    }
+  }
+
+  // Devoluciones
+  if(document.getElementById("cl_ret") && document.getElementById("cl_ret").checked){
+    var modeR = document.querySelector('input[name="clmode_ret"]:checked');
+    var beforeR = null;
+    if(modeR && modeR.value === "antiguos"){
+      var rEl = document.getElementById("cldate_ret");
+      beforeR = rEl ? rEl.value : null;
+    }
+    (state.returns||[]).forEach(function(r){
+      if(beforeR && (r.date||"") >= beforeR) return;
+      plan.returns.push(r.id);
+    });
+  }
+
+  // Producciones
+  if(document.getElementById("cl_prod") && document.getElementById("cl_prod").checked){
+    var modeP = document.querySelector('input[name="clmode_prod"]:checked');
+    var filter = modeP ? modeP.value : "todos";
+    (state.productions||[]).forEach(function(p){
+      if(filter === "agotadas"){
+        var snap = getProductionSnapshot(p);
+        if(snap.stockBandejas > 0) return;
+      } else if(filter === "otrastemp"){
+        if(!p.season || p.season === state.season) return;
+      }
+      plan.productions.push(p.id);
+    });
+  }
+
+  plan.fmMapping = !!(document.getElementById("cl_fm") && document.getElementById("cl_fm").checked);
+  plan.seasons = !!(document.getElementById("cl_temp") && document.getElementById("cl_temp").checked);
+
+  return plan;
+}
+
+function updateCleanupSummary(){
+  var box = document.getElementById("cleanupSummary");
+  if(!box) return;
+  var plan = getCleanupPlan();
+
+  var items = [];
+  if(plan.dispatches.length) items.push("<strong>" + fmtNum(plan.dispatches.length) + "</strong> despachos");
+  if(plan.returns.length) items.push("<strong>" + fmtNum(plan.returns.length) + "</strong> devoluciones");
+  if(plan.productions.length) items.push("<strong>" + fmtNum(plan.productions.length) + "</strong> producciones");
+  if(plan.fmMapping) items.push("el <strong>mapeo FM</strong>");
+  if(plan.seasons) items.push("el <strong>historial de temporadas</strong>");
+
+  var btn = document.getElementById("cl_exec");
+
+  if(!items.length){
+    box.style.background = "var(--blue-soft)";
+    box.style.borderColor = "var(--blue-line)";
+    box.innerHTML = '<span style="color:var(--muted)">Marca alguna opción para ver el resumen.</span>';
+    if(btn) btn.disabled = true;
+    return;
+  }
+
+  box.style.background = "var(--danger-soft)";
+  box.style.borderColor = "#f2c7c1";
+  box.innerHTML = '<div style="font-weight:700;color:var(--danger);margin-bottom:6px">Se eliminarán:</div>'
+    + '<div style="color:var(--ink)">' + items.join(" · ") + '</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:8px">Esta acción no se puede deshacer.</div>';
+  if(btn) btn.disabled = false;
+}
+
+async function executeCleanup(){
+  var plan = getCleanupPlan();
+  var total = plan.dispatches.length + plan.returns.length + plan.productions.length;
+
+  if(!total && !plan.fmMapping && !plan.seasons){
+    alert("No hay nada seleccionado para eliminar.");
+    return;
+  }
+
+  var codeEl = document.getElementById("cl_code");
+  var code = codeEl ? codeEl.value : "";
+  if(code !== APP_CONFIG.resetCode){
+    alert("Código de seguridad incorrecto.");
+    if(codeEl){ codeEl.value = ""; codeEl.focus(); }
+    return;
+  }
+
+  var resumen = [];
+  if(plan.dispatches.length) resumen.push("  • " + fmtNum(plan.dispatches.length) + " despachos");
+  if(plan.returns.length) resumen.push("  • " + fmtNum(plan.returns.length) + " devoluciones");
+  if(plan.productions.length) resumen.push("  • " + fmtNum(plan.productions.length) + " producciones");
+  if(plan.fmMapping) resumen.push("  • Mapeo FM → Usuario");
+  if(plan.seasons) resumen.push("  • Historial de temporadas");
+
+  if(!confirm("Se eliminarán definitivamente:\n\n" + resumen.join("\n") + "\n\n¿Confirmar?")) return;
 
   var loading = document.createElement("div");
-  loading.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:600;z-index:99999";
-  loading.innerHTML = "🔥 Borrando datos de Firebase...<br><span style='font-size:12px;opacity:.8'>No cierre la ventana</span>";
+  loading.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:600;z-index:99999;text-align:center;padding:20px";
+  loading.innerHTML = "🔥 Eliminando datos...<br><span style='font-size:12px;opacity:.8'>No cierre la ventana</span>";
   document.body.appendChild(loading);
 
   try{
     if(storageMode === "firebase" && FBApi.isAvailable()){
-      // Recolecta todos los IDs de cada colección para borrado en lote
-      var dispatchIds = [];
-      for(var k in state.dispatches){
-        (state.dispatches[k]||[]).forEach(function(d){
-          if(d.id) dispatchIds.push(d.id);
-        });
-      }
-      var returnIds = (state.returns||[]).map(function(r){return r.id;}).filter(Boolean);
-      var productionIds = (state.productions||[]).map(function(p){return p.id;}).filter(Boolean);
-
-      console.log("[FB] Reset: borrando "
-        + dispatchIds.length + " despachos, "
-        + returnIds.length + " devoluciones, "
-        + productionIds.length + " producciones");
-
-      // Borra en Firebase (con bulkDelete si hay muchos, o uno por uno)
       var promises = [];
 
-      if(dispatchIds.length){
-        if(typeof FBApi.bulkDelete === "function"){
-          promises.push(FBApi.bulkDelete("despachos", dispatchIds));
-        } else {
-          dispatchIds.forEach(function(id){
-            promises.push(FBApi.deleteDocument("despachos", id).catch(function(e){console.warn("Del despacho:",e.message);}));
-          });
+      if(plan.dispatches.length){
+        var dIds = plan.dispatches.map(function(x){return x.id;}).filter(Boolean);
+        if(dIds.length){
+          promises.push(typeof FBApi.bulkDelete === "function"
+            ? FBApi.bulkDelete("despachos", dIds)
+            : Promise.all(dIds.map(function(id){
+                return FBApi.deleteDocument("despachos", id).catch(function(e){console.warn(e.message);});
+              })));
         }
       }
-      if(returnIds.length){
-        if(typeof FBApi.bulkDelete === "function"){
-          promises.push(FBApi.bulkDelete("devoluciones", returnIds));
-        } else {
-          returnIds.forEach(function(id){
-            promises.push(FBApi.deleteDocument("devoluciones", id).catch(function(e){console.warn("Del devol:",e.message);}));
-          });
-        }
+      if(plan.returns.length){
+        promises.push(typeof FBApi.bulkDelete === "function"
+          ? FBApi.bulkDelete("devoluciones", plan.returns)
+          : Promise.all(plan.returns.map(function(id){
+              return FBApi.deleteDocument("devoluciones", id).catch(function(e){console.warn(e.message);});
+            })));
       }
-      if(productionIds.length){
-        if(typeof FBApi.bulkDelete === "function"){
-          promises.push(FBApi.bulkDelete("producciones", productionIds));
-        } else {
-          productionIds.forEach(function(id){
-            promises.push(FBApi.deleteDocument("producciones", id).catch(function(e){console.warn("Del prod:",e.message);}));
-          });
-        }
+      if(plan.productions.length){
+        promises.push(typeof FBApi.bulkDelete === "function"
+          ? FBApi.bulkDelete("producciones", plan.productions)
+          : Promise.all(plan.productions.map(function(id){
+              return FBApi.deleteDocument("producciones", id).catch(function(e){console.warn(e.message);});
+            })));
       }
 
-      // Resetea config de inventario (mapeo FM + temporadas archivadas)
-      if(typeof FBApi.saveInventoryConfig === "function"){
+      // Config del inventario: solo tocar lo marcado
+      if(plan.fmMapping || plan.seasons){
         promises.push(FBApi.saveInventoryConfig({
-          fmMapping: {},
-          season: "WIN2526",
-          archivedSeasons: {},
+          fmMapping: plan.fmMapping ? {} : (state.fmMapping || {}),
+          season: state.season,
+          archivedSeasons: plan.seasons ? {} : (state.archivedSeasons || {}),
           updatedAt: new Date().toISOString(),
-          updatedBy: currentUser || "",
-          resetBy: currentUser || ""
-        }).catch(function(e){console.warn("Reset config:", e.message);}));
+          updatedBy: currentUser || ""
+        }).catch(function(e){console.warn("Config:", e.message);}));
       }
 
       await Promise.all(promises);
-      console.log("[FB] Reset completo en Firebase ✓");
+      console.log("[FB] Limpieza selectiva completada ✓");
     }
 
-    // Limpia estado en memoria
-    state.dispatches = {};
-    state.returns = [];
-    state.productions = [];
-    state.fmMapping = {};
-    state.archivedSeasons = {};
-    state.season = "WIN2526";
-    selDate = null;
-
-    // Limpia backup local del inventario
-    try { localStorage.removeItem(STORAGE_KEY + "_inventory"); } catch(e){}
+    // === Actualizar estado en memoria ===
+    if(plan.dispatches.length){
+      var delIds = {};
+      plan.dispatches.forEach(function(x){ delIds[x.id] = true; });
+      for(var k in state.dispatches){
+        state.dispatches[k] = (state.dispatches[k]||[]).filter(function(d){ return !delIds[d.id]; });
+        if(!state.dispatches[k].length) delete state.dispatches[k];
+      }
+      selDate = null;
+    }
+    if(plan.returns.length){
+      var retIds = {};
+      plan.returns.forEach(function(id){ retIds[id] = true; });
+      state.returns = (state.returns||[]).filter(function(r){ return !retIds[r.id]; });
+    }
+    if(plan.productions.length){
+      var prodIds = {};
+      plan.productions.forEach(function(id){ prodIds[id] = true; });
+      state.productions = (state.productions||[]).filter(function(p){ return !prodIds[p.id]; });
+    }
+    if(plan.fmMapping) state.fmMapping = {};
+    if(plan.seasons) state.archivedSeasons = {};
 
     saveState();
     renderAll();
     document.body.removeChild(loading);
-    alert("✓ Reseteo completo.\n\nTodos los datos operativos fueron eliminados de la app y de Firebase.\nLos agricultores y la configuración se mantuvieron.");
+    closeOv("ovCleanup");
+
+    alert("✓ Limpieza completada.\n\n" + resumen.join("\n")
+      + "\n\nEl resto de los datos quedó intacto.");
+
   } catch(err){
     if(loading.parentNode) document.body.removeChild(loading);
-    console.error("[FB] Error en reset:", err);
-    alert("⚠ Error durante el reseteo:\n\n" + err.message
-      + "\n\nRevise la consola (F12) y verifique en Firebase Console qué datos quedaron.");
+    console.error("[FB] Error en limpieza:", err);
+    alert("⚠ Error durante la limpieza:\n\n" + err.message
+      + "\n\nRevise la consola (F12) y verifique en Firebase qué datos quedaron.");
   }
 }
 
