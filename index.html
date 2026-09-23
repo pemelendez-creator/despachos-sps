@@ -871,6 +871,7 @@ var APP_CONFIG = {
     { name: "Rafael Rebolledo",     email: "qcfield1@spsc.cl",       admin: false }
   ],
   recipientEmail: "logistica@spsc.cl",
+  alertEmails: ["logistica@spsc.cl"],   // solo estas cuentas reciben alarma de despachos nuevos
   resetCode: "1985"
 };
 
@@ -1571,11 +1572,16 @@ function showApp(){
   document.getElementById("diagBtn").classList.toggle("hidden", !isAdmin());
 
   // Alertas de despachos nuevos
-  document.getElementById("notifBtn").classList.remove("hidden");
-  loadNotifState();
-  recomputePendingAlerts();
-  renderNotifBadge();
-  maybeAskNotifPermission();
+  var alertas = receivesAlerts();
+  document.getElementById("notifBtn").classList.toggle("hidden", !alertas);
+  if(alertas){
+    loadNotifState();
+    recomputePendingAlerts();
+    renderNotifBadge();
+    maybeAskNotifPermission();
+  } else {
+    updateAppBadge(0);
+  }
 
   renderAll();
 }
@@ -1872,7 +1878,7 @@ function renderDay(ds){
       var f = farmerById(d.farmerId) || {name:d.farmerName||"—", phone:d.phone||"", address:d.address||""};
       var href = mapsHref(f);
       var tv = travelMin(f);
-      var germPct = d.germinacion ? (d.germinacion*100).toFixed(0)+"%" : "";
+      var germPct = d.germinacion ? (+(d.germinacion*100).toFixed(1))+"%" : "";
       var typeLabel = d.gender === "F" ? "Female" : (d.gender === "M" ? "Male" : "");
       html += '<div class="drow"><div class="d1"><div class="dname">'+esc(f.name)+(typeLabel?' <span style="font-size:11px;color:var(--muted);font-weight:600">('+typeLabel+')</span>':'')+'</div>'
         + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+statusTag(d.status)+'<div class="dtrays">'+fmtNum(d.trays)+' bandejas</div></div></div>'
@@ -1915,8 +1921,8 @@ function renderDay(ds){
     + '<select id="f_grower" size="1" onchange="growerSelChange();updateSuggestion()" style="max-height:none"></select>'
     + '<div id="grower_stats" style="font-size:11px;color:var(--muted);margin-top:2px"></div>'
     + '<div class="row3">'
-    + '<div><label class="fl">'+L("trays")+'</label><input id="f_trays" type="number" min="1" step="1" inputmode="numeric" oninput="updateSuggestion()"></div>'
-    + '<div><label class="fl">'+L("plants")+'</label><input id="f_plants" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>'
+    + '<div><label class="fl">'+L("trays")+'</label><input id="f_trays" type="number" min="1" step="1" inputmode="numeric" oninput="updateSuggestion();autoCalcPlants()"></div>'
+    + '<div><label class="fl">'+L("plants")+'</label><input id="f_plants" type="number" min="0" step="1" inputmode="numeric" placeholder="0" oninput="this.dataset.manual=this.value?\'1\':\'\'"></div>'
     + '<div><label class="fl">Plantas / HA</label><input id="f_plantasHa" type="number" min="0" step="1" inputmode="numeric" placeholder="ej: 31111"></div>'
     + '</div>'
     + '<div class="row3">'
@@ -2035,14 +2041,14 @@ function onProductionSelected(){
   var p = getProductionById(pid);
   if(!p) return;
   var s = getProductionSnapshot(p);
+  var ppbReal = plantasPorBandejaReal(p);
 
   // Auto-completar campos
   document.getElementById("f_sps").value = p.spsCode || "";
   document.getElementById("f_contract").value = p.contrato || "";
   document.getElementById("f_fieldman").value = p.fm || "";
   if(p.germinacion){
-    var g = p.germinacion > 1 ? p.germinacion : p.germinacion * 100;
-    document.getElementById("f_germ").value = g.toFixed(1);
+    document.getElementById("f_germ").value = germPctValue(p);
   }
 
   // Mostrar info de stock
@@ -2052,7 +2058,11 @@ function onProductionSelected(){
     + '📊 Stock disponible: <strong>' + fmtNum(s.stockBandejas) + '</strong> de ' + fmtNum(p.bandejasSembradas) + ' bandejas ('
     + (100 - s.porcentajeUso) + '% restante)'
     + (s.diasRetraso > 0 ? ' · ⚠ ' + s.diasRetraso + ' días de retraso' : '')
+    + (ppbReal > 0 ? '<br>🌱 ' + fmtNum(Math.round(ppbReal)) + ' plantas por bandeja (' + fmtNum(s.plantasTotales) + ' plantas totales)' : '')
     + '</div>';
+  var plantsEl = document.getElementById("f_plants");
+  if(plantsEl) plantsEl.dataset.manual = "";
+  autoCalcPlants();
 
   // Establecer max en el input de bandejas
   var traysInput = document.getElementById("f_trays");
@@ -2062,6 +2072,21 @@ function onProductionSelected(){
       traysInput.placeholder = "Máx: " + s.stockBandejas;
     }
   }
+}
+
+/* Cantidad de plantas = bandejas × plantas por bandeja de la producción vinculada.
+   Si el usuario escribió la cantidad a mano, no se sobrescribe. */
+function autoCalcPlants(){
+  var sel = document.getElementById("f_production");
+  var plantsEl = document.getElementById("f_plants");
+  var traysEl = document.getElementById("f_trays");
+  if(!sel || !plantsEl || !traysEl || !sel.value) return;
+  if(plantsEl.dataset.manual === "1") return;
+  var p = getProductionById(sel.value);
+  if(!p) return;
+  var ppb = plantasPorBandejaReal(p);
+  var trays = parseInt(traysEl.value, 10) || 0;
+  plantsEl.value = (ppb > 0 && trays > 0) ? Math.round(trays * ppb) : "";
 }
 
 function growerSelChange(){
@@ -2272,10 +2297,11 @@ function _populateDispatchForm(d){
   document.getElementById("f_grower").value = d.farmerId||"";
   document.getElementById("f_trays").value = d.trays||"";
   document.getElementById("f_plants").value = d.plants||"";
+  document.getElementById("f_plants").dataset.manual = d.plants ? "1" : "";
   document.getElementById("f_plantasHa").value = d.plantasPorHa||"";
   document.getElementById("f_gender").value = d.gender||"";
   document.getElementById("f_superficie").value = d.superficieHa||"";
-  document.getElementById("f_germ").value = d.germinacion ? (d.germinacion*100).toFixed(1) : "";
+  document.getElementById("f_germ").value = d.germinacion ? +(d.germinacion*100).toFixed(1) : "";
   document.getElementById("f_fieldman").value = d.fieldman||"";
   document.getElementById("f_prioridad").value = d.prioridad||1;
   document.getElementById("f_op").value = d.op||"";
@@ -4486,28 +4512,53 @@ function getBandejasDespachadas(productionId){
 
 /* Calcula plantas totales = bandejas × plantas/bandeja × germinación */
 function calcPlantasTotales(p){
+  if(+p.plantasTotales > 0) return Math.round(+p.plantasTotales);   // dato directo del Excel
   var germ = (+p.germinacion || 0);
   // Si viene como % (>1), lo interpretamos como porcentaje
   if(germ > 1) germ = germ / 100;
   return Math.round((+p.bandejasSembradas || 0) * (+p.plantasPorBandeja || 0) * germ);
 }
 
+/* Plantas reales (logradas) por bandeja = plantas totales / bandejas sembradas */
+function plantasPorBandejaReal(p){
+  var band = +p.bandejasSembradas || 0;
+  if(+p.plantasTotales > 0 && band > 0) return (+p.plantasTotales) / band;
+  var germ = (+p.germinacion || 0);
+  if(germ > 1) germ = germ / 100;
+  return (+p.plantasPorBandeja || 0) * germ;
+}
+
+/* Germinación en % con los mismos decimales que muestra el Excel */
+function germPctValue(p){
+  var g = +p.germinacion || 0;
+  if(g > 1) g = g / 100;
+  var dec = (p.germDecimales != null) ? +p.germDecimales : 1;
+  return +(g * 100).toFixed(dec);
+}
+
+/* "2026-08-13" → fecha local (sin desfase por zona horaria) */
+function localDateFromYMD(ymd){
+  var m = String(ymd || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return new Date(+m[1], +m[2]-1, +m[3]);
+  return new Date(ymd);
+}
+
 /* Fechas calculadas a partir de la fecha de siembra */
 function calcFechaOptima(p){
   if(!p.fechaSiembra) return null;
-  var d = new Date(p.fechaSiembra);
+  var d = localDateFromYMD(p.fechaSiembra);
   d.setDate(d.getDate() + (+p.diasOptimos || 35));
   return d;
 }
 function calcFechaMaxima(p){
   if(!p.fechaSiembra) return null;
-  var d = new Date(p.fechaSiembra);
+  var d = localDateFromYMD(p.fechaSiembra);
   d.setDate(d.getDate() + (+p.diasMaximos || 45));
   return d;
 }
 function calcDiasEnInvernadero(p){
   if(!p.fechaSiembra) return 0;
-  var siembra = new Date(p.fechaSiembra);
+  var siembra = localDateFromYMD(p.fechaSiembra);
   var hoy = new Date(); hoy.setHours(0,0,0,0);
   return Math.max(0, Math.floor((hoy - siembra) / 86400000));
 }
@@ -4539,8 +4590,7 @@ function getProductionSnapshot(p){
   var plantasTotales = calcPlantasTotales(p);
   var germ = (+p.germinacion || 0);
   if(germ > 1) germ = germ / 100;
-  var plantasPorBand = (+p.plantasPorBandeja || 0);
-  var plantasDespachadas = Math.round(despachadas * plantasPorBand * germ);
+  var plantasDespachadas = Math.round(despachadas * plantasPorBandejaReal(p));
   return {
     despachadas: despachadas,
     stockBandejas: Math.max(0, (+p.bandejasSembradas || 0) - despachadas),
@@ -4657,72 +4707,125 @@ function processGreenhouseWorkbook(wb, filename){
   var newProductions = [];      // producciones nuevas a subir a Firebase
   var updatedProductions = [];  // producciones existentes a actualizar en Firebase
 
-  // Fila 1 = headers. Empieza desde fila 2.
-  ws.eachRow({includeEmpty: false}, function(row, rowNumber){
-    if(rowNumber === 1) return;
+  // Detecta las columnas por NOMBRE de encabezado (el reporte puede traer
+  // columnas extra como CLIENTE o VARIEDAD, y cambiar de orden).
+  var hdr = detectGreenhouseHeader(ws);
+  var col = hdr.map;
+  var clientesEnArchivo = {};
+  var rowsByFile = [];   // {prod, cliente, variedad, fm}
+  var groups = {}, groupOrder = [];
 
-    var vals = [];
-    // Leemos las primeras 18 columnas
-    for(var c=1; c<=18; c++){
-      var cell = row.getCell(c);
-      vals.push(cell.value);
+  ws.eachRow({includeEmpty: false}, function(row, rowNumber){
+    if(rowNumber <= hdr.row) return;
+
+    function v(key){
+      var idx = col[key];
+      if(idx == null) return null;
+      return excelCellValue(row.getCell(idx));
     }
 
-    var fm = String(vals[0]||"").trim();
-    var sps = String(vals[1]||"").trim();
-    var contrato = vals[3];
+    var fm = String(v("fm")||"").trim();
+    var sps = String(v("sps")||"").trim();
+    var contrato = v("contrato");
+    if(contrato != null) contrato = String(contrato).trim();
+    var cliente = String(v("cliente")||"").trim();
+    var variedad = v("variedad") != null ? String(v("variedad")).trim() : "";
 
     // Ignora filas sin datos clave
     if(!fm || !sps){ skipped++; return; }
+    if(cliente) clientesEnArchivo[cliente.toUpperCase()] = true;
 
-    // Convierte fecha (puede venir como Date o número serial)
-    var fSiembra = parseExcelDate(vals[4]);
-    var bandejasSembradas = +vals[5] || 0;
-    var plantasTotales = +vals[6] || 0;
-    var germRaw = vals[7];
+    var fSiembra = parseExcelDate(v("siembra"));
+    var bandejasSembradas = +v("bandejas") || 0;
+    var plantasTotales = +v("plantasTotales") || 0;
+    var germRaw = v("germ");
+    var germDec = 0;   // decimales con que el Excel muestra la germinación (0% → 0, 0.0% → 1)
+    if(col.germ != null){
+      var nf = String(row.getCell(col.germ).numFmt || "");
+      var mDec = nf.match(/0\.(0+)\s*%/);
+      germDec = mDec ? mDec[1].length : (nf.indexOf("%") >= 0 ? 0 : 1);
+    }
     var germ = 0;
     if(germRaw != null && germRaw !== ""){
       germ = +germRaw;
       if(isNaN(germ)) germ = 0;
       if(germ > 1) germ = germ / 100;  // Excel a veces trae 85 en vez de 0.85
     }
-    var diasOpt = +vals[8] || 35;
-    var diasMax = +vals[10] || 45;
-    var obs = vals[17] ? String(vals[17]) : "";
+    var diasOpt = +v("diasOpt") || 35;
+    var diasMax = +v("diasMax") || 45;
+    var obs = v("obs") ? String(v("obs")) : "";
 
-    // Deriva plantas por bandeja si viene el total
+    var key = productionKey(sps, contrato, fm);
+    if(!groups[key]){
+      groups[key] = {fm: fm, sps: sps, contrato: contrato, cliente: cliente, variedad: variedad,
+        especie: String(v("especie")||"").trim(), fSiembra: fSiembra, bandejas: 0,
+        totales: [], germ: germ, germDec: germDec, diasOpt: diasOpt, diasMax: diasMax, obs: []};
+      groupOrder.push(key);
+    }
+    var g = groups[key];
+    g.bandejas += bandejasSembradas;
+    if(plantasTotales > 0) g.totales.push(plantasTotales);
+    if(fSiembra && (!g.fSiembra || fSiembra < g.fSiembra)) g.fSiembra = fSiembra;  // siembra más antigua
+    if(germ > 0 && !g.germ){ g.germ = germ; g.germDec = germDec; }
+    if(obs && g.obs.indexOf(obs) < 0) g.obs.push(obs);
+  });
+
+  // Un contrato sembrado en varios días viene en varias filas: se suman las
+  // bandejas. Si las plantas totales se repiten en cada fila es el total del
+  // contrato; si son distintas, se suman.
+  groupOrder.forEach(function(key){
+    var g = groups[key];
+    var fm = g.fm, sps = g.sps, contrato = g.contrato, cliente = g.cliente, variedad = g.variedad;
+    var fSiembra = g.fSiembra, bandejasSembradas = g.bandejas, germ = g.germ;
+    var diasOpt = g.diasOpt, diasMax = g.diasMax, obs = g.obs.join(" · ");
+    var plantasTotales = 0;
+    if(g.totales.length){
+      var allSame = g.totales.every(function(t){ return Math.round(t) === Math.round(g.totales[0]); });
+      plantasTotales = (allSame && g.totales.length > 1) ? g.totales[0]
+        : g.totales.reduce(function(a,b){ return a + b; }, 0);
+    }
+
+    // Plantas por bandeja (sembradas) derivadas del total del Excel
     var plantasPorBandeja = 0;
     if(plantasTotales > 0 && bandejasSembradas > 0 && germ > 0){
       plantasPorBandeja = Math.round(plantasTotales / (bandejasSembradas * germ));
     }
 
     var existing = findProduction(sps, contrato, fm);
+    var target;
     if(existing){
-      // Update: solo campos editables, no toca despachos ni datos ya llenados por app
       existing.fm = fm.toUpperCase();
-      existing.especie = String(vals[2]||"").trim();
+      existing.especie = g.especie;
+      if(cliente) existing.cliente = cliente;
+      if(variedad) existing.variedad = variedad;
       if(fSiembra) existing.fechaSiembra = fSiembra;
       if(bandejasSembradas > 0) existing.bandejasSembradas = bandejasSembradas;
+      if(plantasTotales > 0) existing.plantasTotales = Math.round(plantasTotales);
       if(plantasPorBandeja > 0) existing.plantasPorBandeja = plantasPorBandeja;
-      if(germ > 0) existing.germinacion = germ;
+      if(germ > 0){ existing.germinacion = germ; existing.germDecimales = g.germDec; }
       existing.diasOptimos = diasOpt;
       existing.diasMaximos = diasMax;
       if(obs) existing.observaciones = obs;
       existing.updatedAt = new Date().toISOString();
       updated++;
       updatedProductions.push(existing);
+      target = existing;
     } else {
       var newProd = {
         id: uid(),
         season: state.season,
         fm: fm.toUpperCase(),
         spsCode: sps.toUpperCase(),
-        especie: String(vals[2]||"").trim(),
+        especie: g.especie,
+        cliente: cliente,
+        variedad: variedad,
         contrato: contrato != null ? String(contrato) : "",
         fechaSiembra: fSiembra,
         bandejasSembradas: bandejasSembradas,
+        plantasTotales: Math.round(plantasTotales) || 0,
         plantasPorBandeja: plantasPorBandeja,
         germinacion: germ,
+        germDecimales: g.germDec,
         diasOptimos: diasOpt,
         diasMaximos: diasMax,
         observaciones: obs,
@@ -4732,8 +4835,53 @@ function processGreenhouseWorkbook(wb, filename){
       state.productions.push(newProd);
       newProductions.push(newProd);
       added++;
+      target = newProd;
     }
+    rowsByFile.push({prod: target, cliente: cliente.toUpperCase(), variedad: variedad.toUpperCase(), fm: fm.toUpperCase()});
   });
+
+  // Reparación: producciones mal importadas con el formato antiguo de columnas
+  // (quedaron con el CLIENTE como código SPS y la VARIEDAD como contrato).
+  var brokenProds = [];
+  state.productions.forEach(function(p){
+    if(p.season && p.season !== state.season) return;
+    if(rowsByFile.some(function(r){ return r.prod === p; })) return;
+    if(!clientesEnArchivo[String(p.spsCode||"").toUpperCase()]) return;
+    var match = null;
+    rowsByFile.some(function(r){
+      if(r.cliente === String(p.spsCode||"").toUpperCase()
+        && r.variedad === String(p.contrato||"").toUpperCase()
+        && splitFMCodes(r.fm).join("/") === splitFMCodes(String(p.fm||"").toUpperCase()).join("/")){
+        match = r.prod; return true;
+      }
+      return false;
+    });
+    brokenProds.push({bad: p, good: match});
+  });
+  var repaired = brokenProds.length;
+  if(repaired){
+    var badIds = {};
+    brokenProds.forEach(function(b){ badIds[b.bad.id] = b; });
+    state.productions = state.productions.filter(function(p){ return !badIds[p.id]; });
+  }
+  // Re-enlaza los despachos de las producciones mal leídas a la producción correcta
+  function relinkBrokenDispatches(){
+    var changed = [];
+    brokenProds.forEach(function(b){
+      var goodId = b.good ? b.good.id : "";
+      Object.keys(state.dispatches || {}).forEach(function(ds){
+        (state.dispatches[ds] || []).forEach(function(d){
+          if(d.productionId === b.bad.id){
+            d.productionId = goodId;
+            changed.push({id: d.id, productionId: goodId});
+          }
+        });
+      });
+    });
+    return changed;
+  }
+  var usingFB = storageMode === "firebase" && typeof FBApi !== "undefined" && FBApi.isAvailable();
+  if(repaired && !usingFB) relinkBrokenDispatches();
 
   saveState();
 
@@ -4799,7 +4947,21 @@ function processGreenhouseWorkbook(wb, filename){
       console.error("[FB] Error guardando config:", e);
     });
 
-    fbPromise = Promise.all(newPromises.concat(updPromises).concat([configPromise]))
+    var repairPromise = Promise.all(newPromises.concat(updPromises)).then(function(){
+      if(!repaired) return;
+      var jobs = [];
+      relinkBrokenDispatches().forEach(function(ch){
+        jobs.push(FBApi.updateDocument("despachos", ch.id, {productionId: ch.productionId})
+          .catch(function(e){ console.warn("[FB] Relink despacho:", e.message); }));
+      });
+      brokenProds.forEach(function(b){
+        jobs.push(FBApi.deleteDocument("producciones", b.bad.id)
+          .catch(function(e){ console.warn("[FB] Borrar producción mal importada:", e.message); }));
+      });
+      return Promise.all(jobs).then(function(){ saveState(); });
+    });
+
+    fbPromise = Promise.all(newPromises.concat(updPromises).concat([configPromise, repairPromise]))
       .then(function(){
         console.log("[FB] Sincronización completa: "
           + fbSuccess + " ok, " + fbFail + " fallidos");
@@ -4825,6 +4987,7 @@ function processGreenhouseWorkbook(wb, filename){
       + "  ✓ " + added + " producciones nuevas\n"
       + "  ↻ " + updated + " actualizadas\n"
       + (skipped > 0 ? "  · " + skipped + " filas ignoradas (vacías)\n" : "")
+      + (repaired > 0 ? "  🔧 " + repaired + " producciones mal leídas en cargas anteriores fueron corregidas\n" : "")
       + "  📅 Temporada: " + state.season
       + syncStatus;
 
@@ -4842,20 +5005,72 @@ function processGreenhouseWorkbook(wb, filename){
   });
 }
 
+/* Valor real de una celda de ExcelJS (fórmulas, texto enriquecido) */
+function excelCellValue(cell){
+  var v = cell ? cell.value : null;
+  if(v && typeof v === "object" && !(v instanceof Date)){
+    if(v.result !== undefined) return v.result;
+    if(v.richText) return v.richText.map(function(t){ return t.text; }).join("");
+    if(v.text !== undefined) return v.text;
+  }
+  return v;
+}
+
+function normHeader(h){
+  return String(h == null ? "" : h).toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[°º]/g, "").replace(/\s+/g, " ").trim();
+}
+
+/* Encuentra la fila de encabezados y la columna de cada dato por su nombre.
+   Si no la encuentra, usa el orden clásico (FM, SPS, ESPECIE, CONTRATO...). */
+function detectGreenhouseHeader(ws){
+  var legacy = {fm:1, sps:2, especie:3, contrato:4, siembra:5, bandejas:6,
+    plantasTotales:7, germ:8, diasOpt:9, diasMax:11, obs:18};
+  for(var r=1; r<=Math.min(10, ws.rowCount); r++){
+    var row = ws.getRow(r);
+    var map = {};
+    for(var c=1; c<=Math.max(row.cellCount, 30); c++){
+      var h = normHeader(excelCellValue(row.getCell(c)));
+      if(!h) continue;
+      var set = (function(cc){ return function(k){ if(map[k] == null) map[k] = cc; }; })(c);
+      if(h === "FM" || h === "FIELDMAN") set("fm");
+      else if(h.indexOf("CLIENTE") === 0) set("cliente");
+      else if(h.indexOf("ESPECIE") === 0) set("especie");
+      else if(h.indexOf("VARIEDAD") === 0) set("variedad");
+      else if(h.indexOf("SPS") >= 0) set("sps");
+      else if(h.indexOf("CONTRATO") >= 0) set("contrato");
+      else if(h.indexOf("SIEMBRA") >= 0 && h.indexOf("FECHA") >= 0) set("siembra");
+      else if(h.indexOf("BANDEJAS SEMBRADAS") >= 0) set("bandejas");
+      else if(h.indexOf("GERMINACION") >= 0) set("germ");
+      else if(h.indexOf("PLANTAS TOTALES") >= 0) set("plantasTotales");
+      else if(h.indexOf("MAXIMO DIAS") >= 0) set("diasMax");
+      else if(h.indexOf("DIAS A T") === 0 && h.indexOf("OPTIM") >= 0) set("diasOpt");
+      else if(h.indexOf("OBSERVACION") >= 0) set("obs");
+    }
+    if(map.fm != null && map.sps != null){
+      return {row: r, map: map};
+    }
+  }
+  return {row: 1, map: legacy};
+}
+
 /* Convierte valor de celda a "YYYY-MM-DD" */
 function parseExcelDate(v){
   if(!v) return "";
+  // Excel guarda las fechas sin zona horaria: se leen en UTC para que en Chile
+  // no queden un día antes.
   if(v instanceof Date){
-    return v.getFullYear() + "-"
-      + String(v.getMonth()+1).padStart(2,"0") + "-"
-      + String(v.getDate()).padStart(2,"0");
+    return v.getUTCFullYear() + "-"
+      + String(v.getUTCMonth()+1).padStart(2,"0") + "-"
+      + String(v.getUTCDate()).padStart(2,"0");
   }
   if(typeof v === "number"){
     // Excel serial date (días desde 1900-01-01)
     var d = new Date(Math.round((v - 25569) * 86400 * 1000));
-    return d.getFullYear() + "-"
-      + String(d.getMonth()+1).padStart(2,"0") + "-"
-      + String(d.getDate()).padStart(2,"0");
+    return d.getUTCFullYear() + "-"
+      + String(d.getUTCMonth()+1).padStart(2,"0") + "-"
+      + String(d.getUTCDate()).padStart(2,"0");
   }
   var s = String(v).trim();
   // ISO ya
@@ -4917,7 +5132,7 @@ function exportGreenhouseReport(){
     if(germ > 1) germ = germ / 100;
 
     // Convertir fechas a Date reales para Excel
-    var fSiembra = p.fechaSiembra ? new Date(p.fechaSiembra) : null;
+    var fSiembra = p.fechaSiembra ? localDateFromYMD(p.fechaSiembra) : null;
     var fOpt = snap.fechaOptima;
     var fMax = snap.fechaMaxima;
 
@@ -4978,7 +5193,7 @@ function exportGreenhouseReport(){
   ws.getColumn(12).numFmt = 'dd-mm-yyyy';  // FECHA MAX
   ws.getColumn(6).numFmt = '#,##0';        // BANDEJAS SEMB
   ws.getColumn(7).numFmt = '#,##0';        // PLANTAS TOT
-  ws.getColumn(8).numFmt = '0.00%';        // GERMINACION
+  ws.getColumn(8).numFmt = '0%';           // GERMINACION (igual que el reporte del invernadero)
   ws.getColumn(15).numFmt = '#,##0';       // BANDEJAS DESP
   ws.getColumn(16).numFmt = '#,##0';       // PLANTAS DESP
   ws.getColumn(17).numFmt = '#,##0';       // STOCK
@@ -5078,7 +5293,7 @@ function renderProductionCard(p){
 
   var pct = s.porcentajeUso;
   var barColor = s.status === "red" ? "#b3261e" : (s.status === "yellow" ? "#b06a00" : "#2e7d52");
-  var germPct = ((+p.germinacion || 0) * ((+p.germinacion || 0) > 1 ? 1 : 100)).toFixed(1);
+  var germPct = germPctValue(p);
   var fSiembra = p.fechaSiembra ? p.fechaSiembra.split("-").reverse().join("-") : "—";
   var fMaxStr = s.fechaMaxima ? s.fechaMaxima.toLocaleDateString("es-CL") : "—";
   // Muestra usuarios asignados (soporta FMs combinados como "IPL/CSC")
@@ -5111,7 +5326,7 @@ function renderProductionCard(p){
     + '    <div><strong>' + s.diasEnInvernadero + '</strong> días en invernadero</div>'
     + (s.diasRetraso > 0 ? '<div style="color:#b3261e;font-weight:700"><strong>' + s.diasRetraso + '</strong> días de retraso</div>' : '<div>Máx: ' + fMaxStr + '</div>')
     + '    <div>Germinación: <strong>' + germPct + '%</strong></div>'
-    + '    <div>Plantas/bandeja: <strong>' + (p.plantasPorBandeja || "—") + '</strong></div>'
+    + '    <div>Plantas/bandeja: <strong>' + (plantasPorBandejaReal(p) > 0 ? fmtNum(Math.round(plantasPorBandejaReal(p))) : "—") + '</strong></div>'
     + '    <div>Despachadas: <strong>' + fmtNum(s.despachadas) + '</strong></div>'
     + '    <div>Plantas totales: <strong>' + fmtNum(s.plantasTotales) + '</strong></div>'
     + '  </div>'
@@ -5131,7 +5346,7 @@ function editProduction(id){
   var germInput = prompt(
     "Producción: " + p.spsCode + " (Contrato " + p.contrato + ")\n\n"
     + "Ingrese % de germinación real medida (0-100):",
-    currentGerm > 0 ? (currentGerm * 100).toFixed(1) : ""
+    currentGerm > 0 ? String(germPctValue(p)) : ""
   );
   if(germInput === null) return;
   var germNum = parseFloat(germInput);
@@ -5148,7 +5363,9 @@ function editProduction(id){
     alert("Ingrese un número entero positivo."); return;
   }
   p.germinacion = germNum / 100;
+  p.germDecimales = (String(germInput).split(/[.,]/)[1] || "").length;
   p.plantasPorBandeja = ppbNum;
+  p.plantasTotales = 0;   // desde ahora se calcula con germinación × plantas/bandeja
   p.updatedAt = new Date().toISOString();
   saveState();
 
@@ -5413,6 +5630,12 @@ function openSeasonManager(){
    ═══════════════════════════════════════════════════════════════════ */
 
 var NOTIF_KEY = "sps_notif_state";
+
+/* ¿La cuenta actual recibe alarmas de despachos nuevos? (solo logística) */
+function receivesAlerts(){
+  var mail = (corporateEmail(currentUser) || "").toLowerCase();
+  return (APP_CONFIG.alertEmails || []).some(function(e){ return e.toLowerCase() === mail; });
+}
 var _notifReady = false;      // evita avisar al cargar la app por primera vez
 var _knownDispatchIds = {};   // ids ya vistos en esta sesión
 var notifState = { lastSeen: "", muted: false, pending: [] };
@@ -5440,7 +5663,7 @@ function saveNotifState(){
 
 /* Revisa la lista de despachos y avisa si hay nuevos de OTROS usuarios */
 function checkNewDispatchAlerts(allDispatches){
-  if(!currentUser) return;
+  if(!currentUser || !receivesAlerts()) return;
 
   // Primera carga: solo registrar lo que ya existe, sin avisar
   if(!_notifReady){
