@@ -1874,10 +1874,10 @@ function buildDriverMessage(ds, d){
   L1.push("🚚 *DESPACHO SPS CHILE*");
   L1.push("📅 " + dayLong(ds));
   L1.push("");
-  L1.push("👨‍🌾 *" + (f.name || "—") + "*");
+  L1.push("🌾 *" + (f.name || "—") + "*");
   if(f.address) L1.push("📍 " + f.address + (f.comuna ? ", " + f.comuna : ""));
   else if(f.comuna) L1.push("📍 " + f.comuna);
-  if(maps) L1.push("🗺 " + maps);
+  if(maps) L1.push("🧭 " + maps);
   if(f.phone) L1.push("📞 " + f.phone);
   L1.push("");
   L1.push("📦 *" + fmtNum(d.trays) + " bandejas*" + (d.plants ? " · " + fmtNum(d.plants) + " plantas" : ""));
@@ -1891,8 +1891,23 @@ function shareDispatchWhatsApp(ds, id){
   if(!canShareToDriver()){ alert("Solo la cuenta de logística puede compartir despachos con el conductor."); return; }
   var d = (state.dispatches[ds]||[]).filter(function(x){ return x.id === id; })[0];
   if(!d) return;
-  var url = "https://wa.me/?text=" + encodeURIComponent(buildDriverMessage(ds, d));
-  window.open(url, "_blank", "noopener");
+  var msg = buildDriverMessage(ds, d);
+
+  // Celular: menú nativo de compartir (mantiene los íconos intactos) → elegir WhatsApp
+  if(isMobileDevice() && typeof navigator.share === "function"){
+    navigator.share({text: msg}).catch(function(err){
+      if(err && err.name === "AbortError") return;
+      openWhatsAppWithText(msg);
+    });
+    return;
+  }
+  // Computador: copia el mensaje (respaldo) y abre WhatsApp
+  try{ if(navigator.clipboard) navigator.clipboard.writeText(msg).catch(function(){}); }catch(e){}
+  openWhatsAppWithText(msg);
+}
+function openWhatsAppWithText(msg){
+  // api.whatsapp.com conserva los emojis; wa.me los rompe al redirigir (se ven como �)
+  window.open("https://api.whatsapp.com/send?text=" + encodeURIComponent(msg), "_blank", "noopener");
 }
 
 function renderDay(ds){
