@@ -629,7 +629,9 @@
 <!-- Farmers modal -->
 <div class="ov" id="ovFarm"><div class="modal">
   <div class="mh"><h3 id="t_fmh">Agricultores</h3><button class="x" onclick="closeOv('ovFarm')">×</button></div>
-  <div class="mb"><div id="farmList"></div><div class="sec" id="farmForm"></div></div>
+  <div class="mb">
+    <input type="text" id="farmSearch" placeholder="🔍 Buscar agricultor por nombre, comuna o RUT…" oninput="renderFarmers()" style="margin-bottom:8px">
+    <div id="farmList"></div><div class="sec" id="farmForm"></div></div>
 </div></div>
 
 <!-- Config modal -->
@@ -975,7 +977,7 @@ var T = {
   fNone:{es:"Aún no hay agricultores. Agrega el primero abajo.",en:"No growers yet. Add the first below."},
   fDelConfirm:{es:"¿Eliminar este agricultor?",en:"Delete this grower?"},
   coordsParsed:{es:"Coordenadas detectadas del link.",en:"Coordinates detected from the link."},
-  coordsNone:{es:"No se detectaron coordenadas en el link (los links cortos no las contienen). Ingresa lat/long o usa GPS.",en:"No coordinates found in the link (short links don't contain them). Enter lat/lng or use GPS."},
+  coordsNone:{es:"Link guardado: se enviará al chofer tal cual. (Los links cortos no traen coordenadas; si quieres que la app calcule el tiempo de viaje, pega también lat/long.)",en:"No coordinates found in the link (short links don't contain them). Enter lat/lng or use GPS."},
   gpsOk:{es:"Ubicación capturada.",en:"Location captured."},gpsFail:{es:"No se pudo obtener la ubicación.",en:"Could not get location."},
   cmh:{es:"Configuración",en:"Settings"},
   cDepot:{es:"Bodega / punto de carga",en:"Depot / loading point"},
@@ -2168,6 +2170,7 @@ function renderDay(ds){
         + '<div class="d3">'
         + (f.phone?'<a href="tel:'+esc(f.phone.replace(/\s/g,""))+'">'+phoneSvg()+L("call")+'</a>':'')
         + (href?'<a href="'+esc(href)+'" target="_blank" rel="noopener">'+pinSvg()+L("openMaps")+'</a>':'')
+        + (!href && canShareToDriver() && farmerById(d.farmerId) ? '<a href="#" style="color:var(--danger)" onclick="editFarmerLocation(\''+d.farmerId+'\');return false;">'+pinSvg()+'Agregar ubicación</a>' : '')
         + (canShareToDriver() ? '<a href="#" class="wa-share" onclick="shareDispatchWhatsApp(\''+ds+'\',\''+d.id+'\');return false;">'+waSvg()+'WhatsApp conductor</a>' : '')
         + (canEditDispatch(d) ? '<span class="acts">'
             + '<button class="btn ghost sm" onclick="editDispatch(\''+ds+'\',\''+d.id+'\')">'+L("edit")+'</button>'
@@ -3218,21 +3221,38 @@ function showFarmerMovements(farmerId){
   alert(lines.join("\n"));
 }
 
-function openFarmers(){document.getElementById("ovFarm").classList.add("show"); editingFarmerId=null; renderFarmers(); renderFarmerForm();}
+function openFarmers(){document.getElementById("ovFarm").classList.add("show"); editingFarmerId=null; var qEl=document.getElementById("farmSearch"); if(qEl) qEl.value=""; renderFarmers(); renderFarmerForm();}
 function closeOv(id){document.getElementById(id).classList.remove("show"); if(selDate) renderPanel();}
 
 function renderFarmers(){
   var el = document.getElementById("farmList");
   if(!state.farmers.length){el.innerHTML='<div class="hint">'+L("fNone")+'</div>'; return;}
-  el.innerHTML = state.farmers.map(function(f){
+  var qEl = document.getElementById("farmSearch");
+  var q = normTxt(qEl ? qEl.value : "");
+  var list = state.farmers.filter(function(f){
+    if(!q) return true;
+    return normTxt([f.name, f.comuna, f.rut, f.sector, f.address].join(" ")).indexOf(q) >= 0;
+  });
+  var total = list.length, MAX = 60;
+  list = list.slice(0, MAX);
+  el.innerHTML = (total ? '' : '<div class="hint">Sin resultados.</div>')
+    + list.map(function(f){
     var tv = travelMin(f);
-    return '<div class="farmrow"><div class="fn"><div class="nm">'+esc(f.name)+'</div>'
+    var hasLoc = !!mapsHref(f);
+    return '<div class="farmrow"><div class="fn"><div class="nm">'+esc(f.name)
+      + (hasLoc ? ' <span title="Tiene ubicación" style="font-size:12px">📍</span>' : ' <span style="font-size:11px;color:var(--danger);font-weight:600">sin ubicación</span>')
+      + '</div>'
       + '<div class="ph">'+(f.phone?esc(f.phone):L("noPhone"))
+      + (f.comuna?' · '+esc(f.comuna):'')
       + (f.sector?' · '+esc(f.sector):'')
       + (tv!=null?' · '+tv+' '+L("min")+' '+L("oneWay"):'')+'</div></div>'
       + '<button class="btn ghost sm" onclick="editFarmer(\''+f.id+'\')">'+L("fEdit")+'</button>'
       + '<button class="btn danger sm" onclick="delFarmer(\''+f.id+'\')">'+L("fDel")+'</button></div>';
-  }).join("");
+  }).join("")
+    + (total > MAX ? '<div class="hint">Mostrando '+MAX+' de '+fmtNum(total)+'. Escribe en el buscador para encontrar al agricultor.</div>' : '');
+}
+function normTxt(t){
+  return String(t||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
 }
 
 function renderFarmerForm(){
@@ -3282,7 +3302,19 @@ function tryParseCoords(){
   } else h.textContent = "";
 }
 
-function editFarmer(id){editingFarmerId=id; renderFarmerForm();}
+function editFarmer(id){
+  editingFarmerId=id; renderFarmerForm();
+  var ff = document.getElementById("farmForm");
+  if(ff && ff.scrollIntoView) ff.scrollIntoView({behavior:"smooth", block:"start"});
+  var m = document.getElementById("ff_maps"); if(m) setTimeout(function(){ m.focus(); }, 400);
+}
+/* Atajo desde la tarjeta del despacho: abre la ficha del agricultor para agregar la ubicación */
+function editFarmerLocation(id){
+  document.getElementById("ovFarm").classList.add("show");
+  var qEl = document.getElementById("farmSearch"); if(qEl) qEl.value = "";
+  renderFarmers();
+  editFarmer(id);
+}
 
 function delFarmer(id){
   if(!confirm(L("fDelConfirm"))) return;
