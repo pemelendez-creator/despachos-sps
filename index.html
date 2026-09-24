@@ -31,6 +31,9 @@
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import {
     getFirestore,
+    initializeFirestore,
+    persistentLocalCache,
+    persistentMultipleTabManager,
     collection,
     doc,
     getDoc,
@@ -58,7 +61,16 @@
 
   const app  = initializeApp(firebaseConfig);
   const auth = getAuth(app);
-  const db   = getFirestore(app);
+  // Caché local en el equipo: al volver a abrir la app solo se descargan los cambios
+  let db;
+  try{
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    });
+  }catch(e){
+    console.warn("[FB] Sin caché local:", e && e.message);
+    db = getFirestore(app);
+  }
 
   // Exponer a window para que el código principal (no-módulo) pueda usarlas
   window.FB = {
@@ -719,8 +731,37 @@ var FBApi = (function(){
     });
   }
 
+  /* Agricultores: se guardan en el equipo y solo se vuelven a descargar si
+     alguien los modificó (config/farmersMeta.version). Ahorra ~740 lecturas por apertura. */
+  var FARMERS_CACHE_KEY = "sps_farmers_cache_v1";
   function loadAgricultores(){
-    return loadCollection("agricultores");
+    var metaRef = window.FB.doc(window.FB.db, "config", "farmersMeta");
+    return window.FB.getDoc(metaRef).then(function(snap){
+      var version = snap.exists() ? (snap.data().version || "") : "";
+      var cache = null;
+      try{ cache = JSON.parse(localStorage.getItem(FARMERS_CACHE_KEY) || "null"); }catch(e){}
+      if(version && cache && cache.version === version && Array.isArray(cache.items)){
+        console.log("[FB] Agricultores desde caché local (" + cache.items.length + ")");
+        return cache.items;
+      }
+      return loadCollection("agricultores").then(function(items){
+        if(!version){
+          version = new Date().toISOString();
+          window.FB.setDoc(metaRef, {version: version}).catch(function(){});
+        }
+        try{ localStorage.setItem(FARMERS_CACHE_KEY, JSON.stringify({version: version, items: items})); }catch(e){}
+        return items;
+      });
+    }).catch(function(err){
+      console.warn("[FB] farmersMeta no disponible, carga completa:", err && err.message);
+      return loadCollection("agricultores");
+    });
+  }
+  function touchFarmers(collectionName){
+    if(collectionName !== "agricultores") return;
+    try{ localStorage.removeItem(FARMERS_CACHE_KEY); }catch(e){}
+    var metaRef = window.FB.doc(window.FB.db, "config", "farmersMeta");
+    window.FB.setDoc(metaRef, {version: new Date().toISOString()}).catch(function(){});
   }
 
   function loadDespachos(){
@@ -752,7 +793,7 @@ var FBApi = (function(){
   function addDocument(collectionName, data){
     if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
     var col = window.FB.collection(window.FB.db, collectionName);
-    return window.FB.addDoc(col, data).then(function(ref){ return ref.id; });
+    return window.FB.addDoc(col, data).then(function(ref){ touchFarmers(collectionName); return ref.id; });
   }
 
   function setDocument(collectionName, docId, data){
@@ -764,13 +805,13 @@ var FBApi = (function(){
   function updateDocument(collectionName, docId, data){
     if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
     var d = window.FB.doc(window.FB.db, collectionName, docId);
-    return window.FB.updateDoc(d, data);
+    return window.FB.updateDoc(d, data).then(function(r){ touchFarmers(collectionName); return r; });
   }
 
   function deleteDocument(collectionName, docId){
     if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
     var d = window.FB.doc(window.FB.db, collectionName, docId);
-    return window.FB.deleteDoc(d);
+    return window.FB.deleteDoc(d).then(function(r){ touchFarmers(collectionName); return r; });
   }
 
   /* ---------- Bulk import (para los 740 agricultores) ---------- */
@@ -791,6 +832,7 @@ var FBApi = (function(){
       results.push(chunk.length);
       console.log("[FB] Importados " + Math.min(i+CHUNK_SIZE, items.length) + "/" + items.length);
     }
+    touchFarmers(collectionName);
     return results.reduce(function(a,b){return a+b;}, 0);
   }
 
@@ -810,6 +852,7 @@ var FBApi = (function(){
       await batch.commit();
       count += chunk.length;
     }
+    touchFarmers(collectionName);
     return count;
   }
 
@@ -1090,7 +1133,17 @@ async function loadState(){
 }
 
 /* Carga datos desde Firebase. Solo debe llamarse DESPUÉS de autenticar. */
-async function loadFirebaseData(){
+var _fbLoadPromise = null, _fbLoadedUser = "";
+function loadFirebaseData(){
+  // Evita cargas dobles (login + onAuthChange) y recargas del mismo usuario
+  if(_fbLoadPromise) return _fbLoadPromise;
+  if(_fbLoadedUser && _fbLoadedUser === currentUser && _realtimeUnsubs.length) return Promise.resolve();
+  _fbLoadPromise = _loadFirebaseDataImpl().then(function(){
+    _fbLoadedUser = currentUser;
+  }).finally(function(){ _fbLoadPromise = null; });
+  return _fbLoadPromise;
+}
+async function _loadFirebaseDataImpl(){
   if(!FBApi.isAvailable()){
     console.warn("[FB] Firebase no disponible, saltando carga de datos");
     return;
@@ -1098,11 +1151,13 @@ async function loadFirebaseData(){
   try{
     console.log("[FB] Cargando datos desde Firebase Firestore...");
 
+    // Despachos, devoluciones y producciones llegan por las suscripciones en
+    // tiempo real (una sola lectura). Aquí solo agricultores (con caché) y config.
     var results = await Promise.all([
       FBApi.loadAgricultores().catch(function(e){console.warn("[FB] Sin agricultores:", e.message); return [];}),
-      FBApi.loadDespachos().catch(function(e){console.warn("[FB] Sin despachos:", e.message); return [];}),
-      FBApi.loadDevoluciones().catch(function(e){console.warn("[FB] Sin devoluciones:", e.message); return [];}),
-      FBApi.loadProducciones().catch(function(e){console.warn("[FB] Sin producciones:", e.message); return [];}),
+      Promise.resolve([]),
+      Promise.resolve([]),
+      Promise.resolve([]),
       FBApi.loadInventoryConfig().catch(function(e){console.warn("[FB] Sin config inventario:", e.message); return null;})
     ]);
 
@@ -1188,8 +1243,8 @@ async function loadFirebaseData(){
 
     normalizeState();
 
-    // Suscripciones en tiempo real (los datos se actualizan si otro usuario cambia algo)
-    setupRealtimeSync();
+    // Suscripciones en tiempo real: la primera respuesta ES la carga inicial
+    await setupRealtimeSync();
   }catch(e){
     console.error("[FB] Error cargando datos:", e);
     if(e.message && e.message.indexOf("permission") >= 0){
@@ -1204,6 +1259,13 @@ function setupRealtimeSync(){
   // Limpia suscripciones anteriores
   _realtimeUnsubs.forEach(function(u){try{u();}catch(e){}});
   _realtimeUnsubs = [];
+  var firsts = {};
+  function first(name){
+    var res; var p = new Promise(function(r){ res = r; });
+    firsts[name] = {p: p, done: function(){ if(res){ res(); res = null; } }};
+    return firsts[name];
+  }
+  var fDesp = first("despachos"), fDev = first("devoluciones"), fProd = first("producciones");
 
   _realtimeUnsubs.push(FBApi.subscribeCollection("despachos", function(items){
     var newDispatches = {};
@@ -1218,6 +1280,7 @@ function setupRealtimeSync(){
     });
     state.dispatches = newDispatches;
     normalizeState();
+    fDesp.done();
 
     // Detectar despachos nuevos de otros usuarios y avisar
     checkNewDispatchAlerts(flat);
@@ -1244,6 +1307,7 @@ function setupRealtimeSync(){
     state.returns = items.map(function(r){
       return Object.assign({}, r, {id: r._id});
     });
+    fDev.done();
     if(currentUser){
       renderAll();
       var retOv = document.getElementById("ovReturns");
@@ -1256,6 +1320,7 @@ function setupRealtimeSync(){
     state.productions = items.map(function(p){
       return Object.assign({}, p, {id: p._id});
     });
+    fProd.done();
     if(currentUser){
       renderAll();
       // Si el modal de inventario está abierto, re-renderizar
@@ -1285,6 +1350,11 @@ function setupRealtimeSync(){
       }
     }));
   }
+  // Espera la primera respuesta de cada colección (máx. 20 s si hay mala señal)
+  return Promise.race([
+    Promise.all([fDesp.p, fDev.p, fProd.p]),
+    new Promise(function(r){ setTimeout(r, 20000); })
+  ]);
 }
 
 async function saveState(){
@@ -1639,6 +1709,9 @@ function logout(){
   }
   currentUser = "";
   selDate = null;
+  _fbLoadedUser = "";
+  _realtimeUnsubs.forEach(function(u){try{u();}catch(e){}});
+  _realtimeUnsubs = [];
   try{ sessionStorage.removeItem(SESSION_USER_KEY); }catch(e){}
   document.getElementById("loginView").classList.remove("hidden");
   document.getElementById("appView").classList.add("hidden");
