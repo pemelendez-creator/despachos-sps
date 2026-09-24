@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14366E">
+<meta name="robots" content="noindex, nofollow">
+<title>Despacho SPS · Chofer</title>
+<link rel="icon" href="icon-192.png">
+<style>
+  :root{
+    --navy:#14366E; --navy-dark:#0f2a55; --blue:#1F5BA6; --ink:#1b2430; --muted:#5b6b7c;
+    --line:#d8e0ea; --bg:#f5f7fb; --ok:#2e7d52; --ok-soft:#e6f3ec; --warn:#b06a00; --warn-soft:#fff4e2;
+    --danger:#b3261e; --danger-soft:#fbe9e7;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:16px;line-height:1.45}
+  header{background:linear-gradient(120deg,var(--navy),var(--navy-dark));color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px}
+  header img{width:44px;height:44px;border-radius:9px;background:#fff;padding:3px}
+  header h1{margin:0;font-size:17px}
+  header p{margin:1px 0 0;font-size:12px;opacity:.8;text-transform:uppercase;letter-spacing:.04em}
+  main{max-width:520px;margin:0 auto;padding:16px 16px 40px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(20,54,110,.08)}
+  .farmer{font-size:18px;font-weight:700;color:var(--navy);margin:0 0 6px}
+  .row{display:flex;gap:8px;margin:4px 0;font-size:14.5px}
+  .row span:first-child{flex:0 0 22px;text-align:center}
+  .big{font-size:22px;font-weight:800;color:var(--navy)}
+  .steps{display:flex;gap:8px;margin-bottom:14px}
+  .step{flex:1;text-align:center;padding:9px 6px;border-radius:10px;background:#e8eef6;color:var(--muted);font-size:13px;font-weight:700}
+  .step.on{background:var(--navy);color:#fff}
+  .step.done{background:var(--ok-soft);color:var(--ok)}
+  h2{margin:0 0 12px;font-size:18px}
+  label{display:block;font-size:13px;font-weight:700;color:var(--muted);margin:12px 0 5px}
+  input[type=text],input[type=number],textarea{width:100%;font-size:17px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);font-family:inherit}
+  textarea{min-height:64px;resize:vertical}
+  .photo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border:2px dashed #9fb4d3;border-radius:12px;padding:18px;text-align:center;color:var(--blue);font-weight:700;cursor:pointer;background:#f4f8fd}
+  .photo img{max-width:100%;max-height:260px;border-radius:8px}
+  .photo small{color:var(--muted);font-weight:500}
+  .btn{display:block;width:100%;border:0;border-radius:12px;padding:16px;font-size:18px;font-weight:800;color:#fff;background:var(--navy);margin-top:18px;cursor:pointer}
+  .btn.go{background:#1f7a46}
+  .btn:disabled{opacity:.55}
+  .gps{font-size:13px;color:var(--muted);margin-top:10px}
+  .msg{padding:12px 14px;border-radius:10px;font-size:14.5px;margin-top:12px}
+  .msg.ok{background:var(--ok-soft);color:var(--ok)}
+  .msg.warn{background:var(--warn-soft);color:var(--warn)}
+  .msg.err{background:var(--danger-soft);color:var(--danger)}
+  .done{text-align:center}
+  .done .ico{font-size:54px}
+  .kv{font-size:14px;margin:3px 0}
+  .kv b{color:var(--navy)}
+  .hidden{display:none !important}
+  .center{text-align:center;color:var(--muted);padding:40px 10px}
+</style>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import {
+    initializeFirestore, persistentLocalCache, doc, getDoc, setDoc, updateDoc, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDQ_6odz6hR4nBbiiNSrbCZzMOKK1aY38k",
+    authDomain: "despachos-sps.firebaseapp.com",
+    projectId: "despachos-sps",
+    storageBucket: "despachos-sps.firebasestorage.app",
+    messagingSenderId: "591821873195",
+    appId: "1:591821873195:web:fcbffa0907857adb0dca6e"
+  };
+  // App con nombre propio: no toca la sesión de la app central
+  const app = initializeApp(firebaseConfig, "chofer");
+  let db;
+  try{
+    // Guarda en el teléfono lo pendiente si no hay señal y lo envía después
+    db = initializeFirestore(app, { localCache: persistentLocalCache() });
+  }catch(e){
+    db = initializeFirestore(app, {});
+  }
+  window.FBC = { db, doc, getDoc, setDoc, updateDoc, serverTimestamp };
+  window.dispatchEvent(new Event("fbc-ready"));
+</script>
+</head>
+<body>
+<header>
+  <img src="icon-192.png" alt="SPS">
+  <div>
+    <h1>Despacho de bandejas</h1>
+    <p>South Pacific Seeds Chile · Chofer</p>
+  </div>
+</header>
+<main id="main">
+  <div class="center" id="loading">Cargando despacho…</div>
+</main>
+
+<script>
+(function(){
+  "use strict";
+  var token = (new URLSearchParams(location.search).get("t") || "").trim();
+  var main = document.getElementById("main");
+  var entrega = null;
+  var fotoData = null;
+  var gps = null, gpsErr = "";
+
+  function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+  function fmtNum(n){ return (+n || 0).toLocaleString("es-CL"); }
+  function fmtFecha(ds){
+    if(!ds) return "";
+    var p = String(ds).split("-");
+    var d = new Date(+p[0], +p[1]-1, +p[2]);
+    return d.toLocaleDateString("es-CL", {weekday:"long", day:"numeric", month:"long"});
+  }
+  function cap(t){ t = String(t || ""); return t.charAt(0).toUpperCase() + t.slice(1); }
+  function fmtHora(iso){
+    if(!iso) return "";
+    var d = new Date(iso);
+    return d.toLocaleString("es-CL", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"});
+  }
+  function lsGet(k){ try{ return localStorage.getItem(k) || ""; }catch(e){ return ""; } }
+  function lsSet(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+
+  function fail(msg){
+    main.innerHTML = '<div class="card center"><div style="font-size:44px">⚠️</div><p>' + esc(msg) + '</p></div>';
+  }
+
+  function start(){
+    if(!/^[A-Za-z0-9]{20,}$/.test(token)){
+      fail("El link no es válido. Pide a logística que te lo envíe de nuevo.");
+      return;
+    }
+    var ref = FBC.doc(FBC.db, "entregas", token);
+    FBC.getDoc(ref).then(function(snap){
+      if(!snap.exists()){
+        fail("No se encontró este despacho. Puede que aún se esté registrando: espera unos segundos y vuelve a abrir el link.");
+        return;
+      }
+      entrega = snap.data();
+      render();
+    }).catch(function(err){
+      console.error(err);
+      fail("No se pudo cargar el despacho. Revisa tu señal e intenta de nuevo.");
+    });
+  }
+
+  function resumenHtml(){
+    var r = entrega.resumen || {};
+    var h = '<div class="card">'
+      + '<div style="font-size:13px;color:var(--muted)">📅 ' + esc(cap(fmtFecha(r.fecha))) + '</div>'
+      + '<p class="farmer">🌾 ' + esc(r.agricultor || "—") + '</p>';
+    if(r.direccion) h += '<div class="row"><span>📍</span><span>' + esc(r.direccion) + '</span></div>';
+    if(r.maps && /^https:\/\//.test(r.maps)) h += '<div class="row"><span>🧭</span><span><a href="' + esc(r.maps) + '" target="_blank" rel="noopener">Abrir en Google Maps</a></span></div>';
+    if(r.telefono) h += '<div class="row"><span>📞</span><span><a href="tel:' + esc(String(r.telefono).replace(/\s/g,"")) + '">' + esc(r.telefono) + '</a></span></div>';
+    h += '<div class="row" style="margin-top:8px"><span>📦</span><span class="big">' + fmtNum(r.bandejas) + ' bandejas</span></div>';
+    if(r.camion) h += '<div class="row"><span>🚛</span><span>' + esc(r.camion) + '</span></div>';
+    if(r.contrato || r.sps) h += '<div class="row"><span>🌱</span><span>Contrato ' + esc(r.contrato || "—") + ' · SPS ' + esc(r.sps || "—") + '</span></div>';
+    if(r.obs) h += '<div class="row"><span>📝</span><span>' + esc(r.obs) + '</span></div>';
+    return h + '</div>';
+  }
+
+  function stepsHtml(){
+    var ini = !!entrega.inicio, fin = !!entrega.termino;
+    return '<div class="steps">'
+      + '<div class="step ' + (ini ? "done" : "on") + '">' + (ini ? "✓ " : "1 · ") + 'Inicio</div>'
+      + '<div class="step ' + (fin ? "done" : (ini ? "on" : "")) + '">' + (fin ? "✓ " : "2 · ") + 'Entrega</div>'
+      + '</div>';
+  }
+
+  function render(){
+    fotoData = null; gps = null; gpsErr = "";
+    var r = entrega.resumen || {};
+    var h = stepsHtml() + resumenHtml();
+
+    if(entrega.termino){
+      var t = entrega.termino;
+      h += '<div class="card done"><div class="ico">✅</div><h2>Entrega confirmada</h2>'
+        + '<div class="kv">Recibió: <b>' + esc(t.recibio || "—") + '</b></div>'
+        + '<div class="kv">Bandejas entregadas: <b>' + fmtNum(t.bandejas) + '</b></div>'
+        + '<div class="kv">Hora: <b>' + esc(fmtHora(t.atLocal)) + '</b></div>'
+        + '<p style="color:var(--muted);font-size:14px">Gracias. Logística ya recibió la confirmación.</p></div>';
+      main.innerHTML = h;
+      return;
+    }
+
+    var etapa = entrega.inicio ? "termino" : "inicio";
+    if(etapa === "inicio"){
+      h += '<div class="card"><h2>▶️ Iniciar despacho</h2>'
+        + '<p style="margin:0;color:var(--muted);font-size:14px">Antes de salir, saca una foto de la carga.</p>'
+        + '<label>Tu nombre</label><input type="text" id="c_nombre" autocomplete="name" value="' + esc(lsGet("sps_chofer_nombre")) + '" placeholder="Nombre del chofer">'
+        + '<label>Bandejas cargadas</label><input type="number" id="c_bandejas" inputmode="numeric" min="0" value="' + (+r.bandejas || "") + '">';
+    } else {
+      var i = entrega.inicio;
+      h += '<div class="card"><div class="msg ok" style="margin:0 0 12px">🚚 En ruta desde ' + esc(fmtHora(i.atLocal)) + ' · ' + fmtNum(i.bandejas) + ' bandejas cargadas</div>'
+        + '<h2>✅ Confirmar entrega</h2>'
+        + '<label>¿Quién recibió?</label><input type="text" id="c_recibio" placeholder="Nombre de quien recibe">'
+        + '<label>Bandejas entregadas</label><input type="number" id="c_bandejas" inputmode="numeric" min="0" value="' + (+i.bandejas || +r.bandejas || "") + '">';
+    }
+    h += '<label>Foto ' + (etapa === "inicio" ? "de la carga" : "de la entrega o guía firmada") + '</label>'
+      + '<label class="photo" id="photoBox" for="c_foto" style="margin:0;color:var(--blue)">📷 Tomar foto<small>Toca aquí para abrir la cámara</small></label>'
+      + '<input type="file" id="c_foto" accept="image/*" capture="environment" class="hidden">'
+      + '<label>Observaciones (opcional)</label><textarea id="c_obs" placeholder="Ej: faltó 1 bandeja, portón cerrado…"></textarea>'
+      + '<div class="gps" id="gpsInfo">📍 Obteniendo ubicación…</div>'
+      + '<button class="btn ' + (etapa === "inicio" ? "" : "go") + '" id="c_send">' + (etapa === "inicio" ? "▶️ Iniciar despacho" : "✅ Confirmar entrega") + '</button>'
+      + '<div id="c_msg"></div></div>';
+    main.innerHTML = h;
+
+    document.getElementById("c_foto").addEventListener("change", onPhoto);
+    document.getElementById("c_send").addEventListener("click", function(){ send(etapa); });
+    askGps();
+  }
+
+  function askGps(){
+    var el = document.getElementById("gpsInfo");
+    if(!navigator.geolocation){ gpsErr = "sin GPS"; if(el) el.textContent = "📍 Este teléfono no entrega ubicación."; return; }
+    navigator.geolocation.getCurrentPosition(function(p){
+      gps = {lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), precision: Math.round(p.coords.accuracy)};
+      if(el) el.textContent = "📍 Ubicación lista (±" + gps.precision + " m)";
+    }, function(err){
+      gpsErr = err && err.code === 1 ? "permiso denegado" : "no disponible";
+      if(el) el.textContent = "📍 Sin ubicación (" + gpsErr + "). Puedes enviar igual.";
+    }, {enableHighAccuracy: true, timeout: 20000, maximumAge: 60000});
+  }
+
+  // Reduce la foto para que pese poco (señal rural) sin perder lo importante
+  function onPhoto(ev){
+    var file = ev.target.files && ev.target.files[0];
+    if(!file) return;
+    var box = document.getElementById("photoBox");
+    box.innerHTML = "Procesando foto…";
+    var reader = new FileReader();
+    reader.onload = function(){
+      var img = new Image();
+      img.onload = function(){
+        var max = 1100, w = img.width, h = img.height;
+        if(w > h && w > max){ h = Math.round(h * max / w); w = max; }
+        else if(h >= w && h > max){ w = Math.round(w * max / h); h = max; }
+        var c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        var q = 0.72, data = c.toDataURL("image/jpeg", q);
+        while(data.length > 420000 && q > 0.3){ q -= 0.1; data = c.toDataURL("image/jpeg", q); }
+        if(data.length > 420000){
+          c.width = Math.round(w * 0.7); c.height = Math.round(h * 0.7);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          data = c.toDataURL("image/jpeg", 0.5);
+        }
+        fotoData = data;
+        box.innerHTML = '<img src="' + data + '" alt="Foto"><small>Toca para cambiar la foto</small>';
+      };
+      img.onerror = function(){ box.innerHTML = "📷 No se pudo leer la foto. Intenta de nuevo."; };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function showMsg(cls, txt){
+    document.getElementById("c_msg").innerHTML = '<div class="msg ' + cls + '">' + txt + '</div>';
+  }
+
+  function send(etapa){
+    var btn = document.getElementById("c_send");
+    var bandejas = parseInt(document.getElementById("c_bandejas").value, 10);
+    var obs = document.getElementById("c_obs").value.trim();
+    var data = {
+      bandejas: isNaN(bandejas) ? 0 : bandejas,
+      obs: obs,
+      foto: !!fotoData,
+      gps: gps,
+      gpsError: gps ? "" : (gpsErr || "no disponible"),
+      at: FBC.serverTimestamp(),
+      atLocal: new Date().toISOString()
+    };
+    if(etapa === "inicio"){
+      var nombre = document.getElementById("c_nombre").value.trim();
+      if(!nombre){ showMsg("err", "Escribe tu nombre."); return; }
+      if(isNaN(bandejas) || bandejas <= 0){ showMsg("err", "Indica las bandejas cargadas."); return; }
+      lsSet("sps_chofer_nombre", nombre);
+      data.chofer = nombre;
+    } else {
+      var recibio = document.getElementById("c_recibio").value.trim();
+      if(!recibio){ showMsg("err", "Escribe quién recibió."); return; }
+      if(isNaN(bandejas) || bandejas < 0){ showMsg("err", "Indica las bandejas entregadas."); return; }
+      data.recibio = recibio;
+      data.chofer = (entrega.inicio && entrega.inicio.chofer) || lsGet("sps_chofer_nombre");
+    }
+    if(!fotoData && !confirm("No agregaste foto. ¿Enviar de todas formas?")) return;
+
+    btn.disabled = true;
+    btn.textContent = "Enviando…";
+    showMsg("warn", "Enviando… no cierres esta página.");
+
+    var slow = setTimeout(function(){
+      showMsg("warn", "📶 Poca señal: quedó guardado en el teléfono y se enviará solo cuando haya señal. "
+        + "Si cierras el navegador, vuelve a abrir este mismo link más tarde.");
+    }, 9000);
+
+    var jobs = [];
+    if(fotoData){
+      jobs.push(FBC.setDoc(FBC.doc(FBC.db, "entregasFotos", token + "_" + etapa), {
+        token: token, etapa: etapa, data: fotoData, createdAt: FBC.serverTimestamp()
+      }));
+    }
+    var upd = {updatedAt: FBC.serverTimestamp()};
+    upd[etapa] = data;
+    jobs.push(FBC.updateDoc(FBC.doc(FBC.db, "entregas", token), upd));
+
+    Promise.all(jobs).then(function(){
+      clearTimeout(slow);
+      entrega[etapa] = Object.assign({}, data, {at: null});
+      if(etapa === "inicio"){
+        main.innerHTML = stepsHtml() + '<div class="card done"><div class="ico">🚚</div><h2>¡Despacho iniciado!</h2>'
+          + '<p style="color:var(--muted)">Logística ya sabe que vas en camino.<br>Cuando entregues, vuelve a abrir <b>este mismo link</b> para confirmar la entrega.</p>'
+          + '<button class="btn go" id="c_next">Ir a confirmar entrega</button></div>';
+        document.getElementById("c_next").addEventListener("click", function(){ render(); window.scrollTo(0,0); });
+      } else {
+        render();
+      }
+      window.scrollTo(0, 0);
+    }).catch(function(err){
+      clearTimeout(slow);
+      console.error(err);
+      btn.disabled = false;
+      btn.textContent = etapa === "inicio" ? "▶️ Iniciar despacho" : "✅ Confirmar entrega";
+      var perm = /permission|insufficient/i.test(err && err.message || "");
+      showMsg("err", perm
+        ? "Este despacho ya fue cerrado o el link no es válido. Contacta a logística."
+        : "No se pudo enviar. Revisa tu señal e intenta de nuevo.");
+    });
+  }
+
+  if(window.FBC) start();
+  else window.addEventListener("fbc-ready", start, {once: true});
+  setTimeout(function(){
+    if(!window.FBC) fail("No se pudo conectar. Revisa tu señal e intenta de nuevo.");
+  }, 20000);
+})();
+</script>
+</body>
+</html>

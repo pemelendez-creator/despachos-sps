@@ -218,6 +218,13 @@
   .drow .d3 a{color:var(--blue);text-decoration:none;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:5px}
   .drow .d3 a svg{width:14px;height:14px}
   .drow .d3 a.wa-share{color:#128C7E}
+  .entrega{margin-top:8px;border-radius:9px;padding:8px 10px;font-size:12.5px}
+  .entrega.route{background:#fff4e2;color:#7a4a00}
+  .entrega.done{background:#e6f3ec;color:#1f5c3b}
+  .entrega .et{font-weight:800;font-size:13px}
+  .entrega .ed{margin-top:2px}
+  .entrega .el{display:flex;gap:14px;flex-wrap:wrap;margin-top:5px}
+  .entrega .el a{color:inherit;font-weight:700;text-decoration:underline}
   .drow .acts{display:flex;gap:6px;margin-left:auto}
 
   /* Suggestion box */
@@ -590,6 +597,15 @@
     <button class="x" onclick="closeOv('ovNotif')">×</button>
   </div>
   <div class="mb" id="notifBody"></div>
+</div></div>
+
+<!-- Fotos del chofer -->
+<div class="ov" id="ovFotos"><div class="modal" style="max-width:620px">
+  <div class="mh">
+    <h3>📷 Fotos del despacho</h3>
+    <button class="x" onclick="closeOv('ovFotos')">×</button>
+  </div>
+  <div class="mb" id="fotosBody"></div>
 </div></div>
 
 <!-- Limpieza selectiva de datos modal -->
@@ -1212,6 +1228,14 @@ function setupRealtimeSync(){
       var invOv = document.getElementById("ovInventory");
       if(invOv && invOv.classList.contains("show")) renderInventory();
     }
+  }));
+
+  _realtimeUnsubs.push(FBApi.subscribeCollection("entregas", function(items){
+    var map = {};
+    items.forEach(function(e){ map[e._id] = Object.assign({}, e, {token: e._id}); });
+    state.entregas = map;
+    checkEntregaAlerts(items);
+    if(currentUser && selDate) renderPanel();
   }));
 
   _realtimeUnsubs.push(FBApi.subscribeCollection("devoluciones", function(items){
@@ -1885,12 +1909,199 @@ function buildDriverMessage(ds, d){
   if(d.contractNumber || d.spsCode) L1.push("🌱 Contrato " + (d.contractNumber||"—") + " · SPS " + (d.spsCode||"—"));
   if(d.responsible) L1.push("👤 Responsable: " + d.responsible);
   if(d.notes) L1.push("📝 Obs: " + d.notes);
+  if(d.driverToken){
+    L1.push("");
+    L1.push("━━━━━━━━━━━━━━");
+    L1.push("▶️ *Al salir:* inicia el despacho con foto de la carga");
+    L1.push("✅ *Al entregar:* confirma con foto en el mismo link");
+    L1.push(driverLink(d.driverToken));
+  }
   return L1.join("\n");
+}
+
+/* ===== Seguimiento del chofer (inicio / término de despacho) ===== */
+function newDriverToken(){
+  var chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  var arr = new Uint32Array(24), out = "";
+  (window.crypto || window.msCrypto).getRandomValues(arr);
+  for(var i=0; i<arr.length; i++) out += chars[arr[i] % chars.length];
+  return out;
+}
+function driverLink(token){
+  var base = location.href.split("#")[0].split("?")[0].replace(/[^\/]*$/, "");
+  return base + "chofer.html?t=" + token;
+}
+function driverResumen(ds, d){
+  var f = farmerById(d.farmerId) || {name:d.farmerName||"—", phone:d.phone||"", address:d.address||""};
+  var trucks = (d.truckIds||[]).map(function(id){ var t = truckById(id); return t ? t.name : id; }).join(" + ");
+  return {
+    fecha: ds,
+    agricultor: f.name || "",
+    direccion: (f.address || "") + (f.comuna ? (f.address ? ", " : "") + f.comuna : ""),
+    telefono: f.phone || "",
+    maps: mapsHref(f) || "",
+    bandejas: +d.trays || 0,
+    camion: trucks,
+    contrato: d.contractNumber || "",
+    sps: d.spsCode || "",
+    obs: d.notes || ""
+  };
+}
+/* Crea (una sola vez por despacho) el link del chofer y su registro en "entregas" */
+function ensureDriverToken(ds, d){
+  if(storageMode !== "firebase" || typeof FBApi === "undefined" || !FBApi.isAvailable()) return "";
+  var resumen = driverResumen(ds, d);
+  if(d.driverToken){
+    // Mantiene el resumen al día por si se cambió algo del despacho
+    FBApi.updateDocument("entregas", d.driverToken, {resumen: resumen, dispatchId: d.id})
+      .catch(function(e){ console.warn("[Entregas] resumen:", e.message); });
+    return d.driverToken;
+  }
+  var token = newDriverToken();
+  d.driverToken = token;
+  FBApi.setDocument("entregas", token, {
+    dispatchId: d.id,
+    resumen: resumen,
+    createdAt: new Date().toISOString(),
+    createdBy: currentUser || ""
+  }).then(function(){
+    return FBApi.updateDocument("despachos", d.id, {driverToken: token});
+  }).catch(function(e){
+    console.error("[Entregas] No se pudo crear el link del chofer:", e);
+    alert("⚠ No se pudo registrar el link del chofer: " + e.message
+      + "\n\nRevisa que las reglas de Firebase estén actualizadas.");
+  });
+  return token;
+}
+function entregaOf(d){
+  var map = state.entregas || {};
+  if(d.driverToken && map[d.driverToken]) return map[d.driverToken];
+  for(var k in map){ if(map[k].dispatchId === d.id) return map[k]; }
+  return null;
+}
+function fmtHoraCorta(iso){
+  if(!iso) return "";
+  var d = new Date(iso);
+  if(isNaN(d)) return "";
+  return String(d.getDate()).padStart(2,"0") + "-" + String(d.getMonth()+1).padStart(2,"0")
+    + " " + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+}
+function gpsLink(g){
+  return (g && g.lat != null && g.lng != null) ? "https://www.google.com/maps?q=" + g.lat + "," + g.lng : "";
+}
+/* Franja de estado del chofer en la tarjeta del despacho */
+function entregaBadgeHtml(d){
+  var e = entregaOf(d);
+  if(!e || (!e.inicio && !e.termino)) return "";
+  var t = e.termino, i = e.inicio, h;
+  if(t){
+    var dif = (i && +t.bandejas !== +i.bandejas) || (+t.bandejas !== +d.trays);
+    h = '<div class="entrega done"><div class="et">✅ Entregado · ' + esc(fmtHoraCorta(t.atLocal)) + '</div>'
+      + '<div class="ed">Recibió: <strong>' + esc(t.recibio || "—") + '</strong> · <strong'
+      + (dif ? ' style="color:var(--danger)"' : '') + '>' + fmtNum(t.bandejas) + '</strong> bandejas entregadas'
+      + (dif ? ' <span style="color:var(--danger)">(programadas ' + fmtNum(d.trays) + ')</span>' : '') + '</div>';
+    if(t.obs) h += '<div class="ed">📝 ' + esc(t.obs) + '</div>';
+  } else {
+    h = '<div class="entrega route"><div class="et">🚚 En ruta · salió ' + esc(fmtHoraCorta(i.atLocal)) + '</div>';
+  }
+  if(i){
+    h += '<div class="ed">Chofer: <strong>' + esc(i.chofer || "—") + '</strong> · ' + fmtNum(i.bandejas) + ' bandejas cargadas'
+      + (i.obs ? ' · 📝 ' + esc(i.obs) : '') + '</div>';
+  }
+  h += '<div class="el">';
+  if((i && i.foto) || (t && t.foto)) h += '<a href="#" onclick="openEntregaFotos(\'' + e.token + '\');return false;">📷 Ver fotos</a>';
+  if(i && gpsLink(i.gps)) h += '<a href="' + esc(gpsLink(i.gps)) + '" target="_blank" rel="noopener">📍 GPS salida</a>';
+  if(t && gpsLink(t.gps)) h += '<a href="' + esc(gpsLink(t.gps)) + '" target="_blank" rel="noopener">📍 GPS entrega</a>';
+  h += '</div></div>';
+  return h;
+}
+/* Visor de fotos (se descargan solo al abrir, para no recargar la app) */
+function openEntregaFotos(token){
+  var e = (state.entregas || {})[token];
+  var ov = document.getElementById("ovFotos");
+  var body = document.getElementById("fotosBody");
+  ov.classList.add("show");
+  body.innerHTML = '<p style="color:var(--muted)">Cargando fotos…</p>';
+  var etapas = [["inicio","▶️ Inicio (carga)"],["termino","✅ Entrega"]];
+  Promise.all(etapas.map(function(et){
+    var ref = window.FB.doc(window.FB.db, "entregasFotos", token + "_" + et[0]);
+    return window.FB.getDoc(ref).then(function(snap){ return snap.exists() ? snap.data().data : null; })
+      .catch(function(){ return null; });
+  })).then(function(fotos){
+    var h = "";
+    etapas.forEach(function(et, idx){
+      var info = e && e[et[0]];
+      if(!info) return;
+      h += '<div style="margin-bottom:16px"><div style="font-weight:700;color:var(--navy);margin-bottom:6px">' + et[1]
+        + ' · ' + esc(fmtHoraCorta(info.atLocal)) + '</div>';
+      var src = fotos[idx];
+      if(src && /^data:image\/(jpeg|png|webp);base64,/.test(src)){
+        h += '<a href="' + src + '" download="despacho_' + et[0] + '.jpg"><img src="' + src + '" style="max-width:100%;border-radius:8px;border:1px solid var(--line)"></a>';
+      } else {
+        h += '<div style="color:var(--muted);font-size:13px">Sin foto</div>';
+      }
+      h += '</div>';
+    });
+    body.innerHTML = h || '<p>Sin información.</p>';
+  });
+}
+/* Aviso a logística cuando el chofer inicia o termina */
+function checkEntregaAlerts(items){
+  if(!currentUser || !receivesAlerts()) return;
+  var key = "sps_entregas_vistas_" + normalizeUser(currentUser);
+  var seen = null;
+  try{ seen = JSON.parse(localStorage.getItem(key) || "null"); }catch(e){}
+  var first = !seen;
+  seen = seen || {};
+  var nuevos = [];
+  items.forEach(function(e){
+    ["inicio","termino"].forEach(function(et){
+      if(!e[et]) return;
+      var k = e._id + ":" + et;
+      if(!seen[k]){ seen[k] = 1; if(!first) nuevos.push({e: e, etapa: et}); }
+    });
+  });
+  try{ localStorage.setItem(key, JSON.stringify(seen)); }catch(e){}
+  if(!nuevos.length) return;
+  var n = nuevos[nuevos.length - 1];
+  var r = n.e.resumen || {};
+  var info = n.e[n.etapa] || {};
+  var titulo = n.etapa === "termino" ? "✅ Despacho entregado" : "🚚 Despacho iniciado";
+  var texto = (r.agricultor || "") + " · " + fmtNum(info.bandejas) + " bandejas"
+    + (n.etapa === "termino" && info.recibio ? " · recibió " + info.recibio : (info.chofer ? " · " + info.chofer : ""));
+  playAlertSound();
+  vibrateAlert();
+  entregaToast(titulo, texto, r.fecha);
+  try{
+    if("Notification" in window && Notification.permission === "granted"){
+      new Notification(titulo, {body: texto, icon: "icon-192.png", tag: "sps-entrega-" + n.e._id + n.etapa});
+    }
+  }catch(e){}
+}
+function entregaToast(titulo, texto, fecha){
+  var old = document.getElementById("alertToast");
+  if(old) old.remove();
+  var toast = document.createElement("div");
+  toast.id = "alertToast";
+  toast.onclick = function(){
+    if(fecha){ selDate = fecha; var p = fecha.split("-"); view = new Date(+p[0], +p[1]-1, 1); renderAll(); }
+    toast.remove();
+  };
+  toast.innerHTML = '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">' + esc(titulo) + '</div>'
+    + '<div style="font-size:12.5px;opacity:.9;margin-top:2px">' + esc(texto) + '</div></div>'
+    + '<div style="font-size:11px;opacity:.7;flex:0 0 auto">Ver</div>';
+  document.body.appendChild(toast);
+  requestAnimationFrame(function(){ toast.classList.add("show"); });
+  setTimeout(function(){
+    toast.classList.remove("show");
+    setTimeout(function(){ if(toast.parentNode) toast.remove(); }, 400);
+  }, 8000);
 }
 function shareDispatchWhatsApp(ds, id){
   if(!canShareToDriver()){ alert("Solo la cuenta de logística puede compartir despachos con el conductor."); return; }
   var d = (state.dispatches[ds]||[]).filter(function(x){ return x.id === id; })[0];
   if(!d) return;
+  ensureDriverToken(ds, d);
   var msg = buildDriverMessage(ds, d);
 
   // Celular: menú nativo de compartir (mantiene los íconos intactos) → elegir WhatsApp
@@ -1953,6 +2164,7 @@ function renderDay(ds){
         + '</div>'
         + (d.responsible?'<div class="d2 dark">'+L("responsible")+': '+esc(d.responsible)+'</div>':'')
         + (d.notes?'<div class="d2 dark">Obs: '+esc(d.notes)+'</div>':'')
+        + entregaBadgeHtml(d)
         + '<div class="d3">'
         + (f.phone?'<a href="tel:'+esc(f.phone.replace(/\s/g,""))+'">'+phoneSvg()+L("call")+'</a>':'')
         + (href?'<a href="'+esc(href)+'" target="_blank" rel="noopener">'+pinSvg()+L("openMaps")+'</a>':'')
@@ -2272,6 +2484,10 @@ function addDispatch(){
     createdAt: new Date().toISOString(),
     date: selDate
   };
+  if(_editCarry && _editCarry.farmerId === gid){
+    newDispatch.driverToken = _editCarry.driverToken;
+  }
+  _editCarry = null;
 
   // Si Firebase está activo, guardar allí primero
   if(storageMode === "firebase"){
@@ -2280,6 +2496,12 @@ function addDispatch(){
     delete toSave.id;
     FBApi.addDocument("despachos", toSave).then(function(docId){
       console.log("[FB] Despacho guardado con ID:", docId);
+      if(newDispatch.driverToken){
+        newDispatch.id = docId;
+        FBApi.updateDocument("entregas", newDispatch.driverToken, {
+          dispatchId: docId, resumen: driverResumen(newDispatch.date, newDispatch)
+        }).catch(function(e){ console.warn("[Entregas] relink:", e.message); });
+      }
       // La subscription realtime traerá el dispatch con id = docId
       // No renderizamos ni pusheamos aquí para evitar duplicados
     }).catch(function(err){
@@ -2344,7 +2566,9 @@ function editDispatch(ds,id){
 }
 
 /* Pobla el formulario con los datos de un despacho para editar */
+var _editCarry = null;   // conserva el link del chofer al editar un despacho
 function _populateDispatchForm(d){
+  _editCarry = d.driverToken ? {driverToken: d.driverToken, farmerId: d.farmerId} : null;
   // Asegurar que el panel esté renderizado (los campos deben existir en el DOM)
   if(!document.getElementById("f_grower")){
     renderPanel();
