@@ -871,6 +871,8 @@ var APP_CONFIG = {
     { name: "Rafael Rebolledo",     email: "qcfield1@spsc.cl",       admin: false }
   ],
   recipientEmail: "logistica@spsc.cl",
+  // Receptores fijos de TODAS las solicitudes de despacho de los fieldman
+  requestRecipients: ["logistica@spsc.cl", "hq@spsc.cl", "estrella@spsc.cl", "prodassist2@spsc.cl"],
   alertEmails: ["logistica@spsc.cl"],   // solo estas cuentas reciben alarma de despachos nuevos
   resetCode: "1985"
 };
@@ -3337,7 +3339,7 @@ function openOutlookWeb(){
 
   // URL de Outlook Web (deep link para redactar)
   var url = "https://outlook.office.com/mail/deeplink/compose"
-    + "?to=" + encodeURIComponent(APP_CONFIG.recipientEmail)
+    + "?to=" + recipientsForUrl()
     + "&subject=" + encodeURIComponent(subject)
     + "&body=" + encodeURIComponent(body);
 
@@ -3382,7 +3384,7 @@ function shareReportMobile(pending, mail){
   var texto = "DESPACHOS INVERNADERO\n"
     + "Fieldman: " + currentUser + "\n"
     + "Fecha: " + fechaInforme + "\n"
-    + "Para: " + APP_CONFIG.recipientEmail + "\n"
+    + "Para: " + recipientsText() + "\n"
     + "────────────────────\n"
     + lineas + "\n"
     + "────────────────────\n"
@@ -3395,6 +3397,16 @@ function shareReportMobile(pending, mail){
   loading.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:600;z-index:99999";
   loading.textContent = "Preparando informe...";
   document.body.appendChild(loading);
+
+  // En el celular no se puede pre-llenar "Para:": se copian los correos
+  // para pegarlos de una vez en Outlook/Gmail.
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(recipientsText()).then(function(){
+        loading.innerHTML = "Preparando informe...<br><span style='font-size:12.5px;font-weight:500'>📋 Correos de destino copiados: pégalos en \"Para\"</span>";
+      }).catch(function(){});
+    }
+  }catch(e){}
 
   buildReportFile(pending, filename).then(function(file){
     if(loading.parentNode) loading.remove();
@@ -3439,7 +3451,7 @@ function shareReportMobile(pending, mail){
       + "  • Se descargó el archivo del informe\n"
       + "  • Se copió el resumen al portapapeles\n\n"
       + "Abre tu correo o WhatsApp, pega el texto y adjunta el archivo descargado.\n\n"
-      + "Destinatario: " + APP_CONFIG.recipientEmail);
+      + "Destinatarios: " + recipientsText());
   });
 }
 
@@ -3468,6 +3480,15 @@ function isMobileDevice(){
   return /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent)
     || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
 }
+
+/* Destinatarios de las solicitudes, listos para "Para:" (separados por coma) */
+function requestRecipients(){
+  var l = APP_CONFIG.requestRecipients && APP_CONFIG.requestRecipients.length
+    ? APP_CONFIG.requestRecipients : [APP_CONFIG.recipientEmail];
+  return l.slice();
+}
+function recipientsText(){ return requestRecipients().join(", "); }
+function recipientsForUrl(){ return requestRecipients().join(","); }
 
 /* ¿El navegador puede compartir archivos por el menú nativo? */
 function canShareFiles(){
@@ -3531,7 +3552,7 @@ function openOutlook(){
     "══════════════════════════════════════════",
     " Usuario         : " + currentUser,
     " Enviar desde    : " + mail,
-    " Destinatario    : " + APP_CONFIG.recipientEmail,
+    " Destinatarios   : " + recipientsText(),
     " Fecha informe   : " + fechaInforme,
     " N° despachos    : " + rows.length,
     "══════════════════════════════════════════",
@@ -3558,7 +3579,7 @@ function openOutlook(){
   // 5. Envío: en móvil usa el menú de compartir nativo, en PC abre Outlook
   var delay = (typeof ExcelJS !== "undefined") ? 1200 : 500;
   setTimeout(function(){
-    var mailtoUrl = "mailto:" + encodeURIComponent(APP_CONFIG.recipientEmail)
+    var mailtoUrl = "mailto:" + recipientsForUrl()
       + "?subject=" + encodeURIComponent(subject)
       + "&body=" + encodeURIComponent(body);
 
@@ -3584,7 +3605,7 @@ function openOutlook(){
         "   (si tiene varias cuentas configuradas en Outlook).\n" +
         "2. Adjunte el archivo Excel descargado:\n" +
         "   " + excelFilename + "\n" +
-        "3. Envíe el correo a " + APP_CONFIG.recipientEmail + ".\n" +
+        "3. Envíe el correo a " + recipientsText() + ".\n" +
         "4. Vuelva aquí y presione \"Marcar como enviados\".\n\n" +
         "Si Outlook NO se abrió, verifique que sea su aplicación de\n" +
         "correo predeterminada en Windows (Configuración → Aplicaciones\n" +
@@ -4840,23 +4861,34 @@ function processGreenhouseWorkbook(wb, filename){
     rowsByFile.push({prod: target, cliente: cliente.toUpperCase(), variedad: variedad.toUpperCase(), fm: fm.toUpperCase()});
   });
 
-  // Reparación: producciones mal importadas con el formato antiguo de columnas
-  // (quedaron con el CLIENTE como código SPS y la VARIEDAD como contrato).
+  // Reparación: producciones mal leídas en cargas anteriores (columnas corridas:
+  // p.ej. la ESPECIE quedó como código SPS o el CLIENTE como código SPS).
+  // Cada N° de contrato del invernadero es único, así que si una producción
+  // guardada tiene el mismo contrato y FM que una fila del reporte pero otro
+  // código SPS, es la misma producción mal leída.
   var brokenProds = [];
+  var fmKey = function(f){ return splitFMCodes(String(f||"").toUpperCase()).join("/"); };
   state.productions.forEach(function(p){
     if(p.season && p.season !== state.season) return;
     if(rowsByFile.some(function(r){ return r.prod === p; })) return;
-    if(!clientesEnArchivo[String(p.spsCode||"").toUpperCase()]) return;
-    var match = null;
+    var pSps = String(p.spsCode||"").toUpperCase();
+    var pCon = String(p.contrato||"").trim().toUpperCase();
+    var match = null, isBroken = false;
     rowsByFile.some(function(r){
-      if(r.cliente === String(p.spsCode||"").toUpperCase()
-        && r.variedad === String(p.contrato||"").toUpperCase()
-        && splitFMCodes(r.fm).join("/") === splitFMCodes(String(p.fm||"").toUpperCase()).join("/")){
-        match = r.prod; return true;
+      if(fmKey(r.fm) !== fmKey(p.fm)) return false;
+      var rCon = String(r.prod.contrato||"").trim().toUpperCase();
+      // Caso 1: mismo contrato, distinto código SPS
+      if(pCon && rCon === pCon && String(r.prod.spsCode||"").toUpperCase() !== pSps){
+        match = r.prod; isBroken = true; return true;
+      }
+      // Caso 2: CLIENTE como código SPS y VARIEDAD como contrato
+      if(r.cliente && r.cliente === pSps && r.variedad === pCon){
+        match = r.prod; isBroken = true; return true;
       }
       return false;
     });
-    brokenProds.push({bad: p, good: match});
+    if(!isBroken && clientesEnArchivo[pSps]) isBroken = true;
+    if(isBroken) brokenProds.push({bad: p, good: match});
   });
   var repaired = brokenProds.length;
   if(repaired){
@@ -4872,8 +4904,17 @@ function processGreenhouseWorkbook(wb, filename){
       Object.keys(state.dispatches || {}).forEach(function(ds){
         (state.dispatches[ds] || []).forEach(function(d){
           if(d.productionId === b.bad.id){
-            d.productionId = goodId;
-            changed.push({id: d.id, productionId: goodId});
+            var upd = {productionId: goodId};
+            if(b.good){
+              if(d.spsCode !== b.good.spsCode) upd.spsCode = b.good.spsCode;
+              if(!(+d.plants) && +d.trays > 0){
+                var ppb = plantasPorBandejaReal(b.good);
+                if(ppb > 0) upd.plants = Math.round(+d.trays * ppb);
+              }
+            }
+            Object.assign(d, upd);
+            upd.id = d.id;
+            changed.push(upd);
           }
         });
       });
@@ -4951,7 +4992,8 @@ function processGreenhouseWorkbook(wb, filename){
       if(!repaired) return;
       var jobs = [];
       relinkBrokenDispatches().forEach(function(ch){
-        jobs.push(FBApi.updateDocument("despachos", ch.id, {productionId: ch.productionId})
+        var data = Object.assign({}, ch); delete data.id;
+        jobs.push(FBApi.updateDocument("despachos", ch.id, data)
           .catch(function(e){ console.warn("[FB] Relink despacho:", e.message); }));
       });
       brokenProds.forEach(function(b){
