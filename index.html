@@ -177,6 +177,7 @@
   .swatch.p{background:var(--blue-soft);border-color:var(--blue-line)}
   .swatch.f{background:var(--navy);border-color:var(--navy)}
   .swatch.t{background:#fff;box-shadow:inset 0 0 0 2px var(--blue)}
+  .swatch.b{background:repeating-linear-gradient(135deg,#f3f4f6,#f3f4f6 3px,#d1d5db 3px,#d1d5db 6px)}
 
   /* Forms */
   label.fl{display:block;font-size:12px;font-weight:600;color:var(--navy);margin:12px 0 4px}
@@ -230,6 +231,11 @@
   .drow .d3 a{color:var(--blue);text-decoration:none;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:5px}
   .drow .d3 a svg{width:14px;height:14px}
   .drow .d3 a.wa-share{color:#128C7E}
+  .day.blocked{background:repeating-linear-gradient(135deg,#f3f4f6,#f3f4f6 6px,#e5e7eb 6px,#e5e7eb 12px);color:#6b7280}
+  .day .dblock{position:absolute;top:4px;right:5px;font-size:11px}
+  .daynote{margin-top:12px;padding:12px 14px;border-radius:10px;background:#eef2f7;color:#334155;font-size:14px}
+  .daynote.blocked{background:#fdecea;color:#8a1c14}
+  .editbar{background:#fff4e2;color:#7a4a00;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:8px}
   .entrega{margin-top:8px;border-radius:9px;padding:8px 10px;font-size:12.5px}
   .entrega.route{background:#fff4e2;color:#7a4a00}
   .entrega.done{background:#e6f3ec;color:#1f5c3b}
@@ -545,6 +551,7 @@
             <span><i class="swatch p"></i><span id="t_lg_p">Capacidad parcial</span></span>
             <span><i class="swatch f"></i><span id="t_lg_f">Sin capacidad</span></span>
             <span><i class="swatch t"></i><span id="t_lg_t">Hoy</span></span>
+            <span><i class="swatch b"></i><span>Bloqueado</span></span>
           </div>
         </div>
       </section>
@@ -757,11 +764,21 @@ var FBApi = (function(){
       return loadCollection("agricultores");
     });
   }
+  var _touchTimer = null, _touchPending = false;
   function touchFarmers(collectionName){
     if(collectionName !== "agricultores") return;
+    // Se invalida la caché propia al instante y se avisa a los demás (una sola vez por ráfaga)
     try{ localStorage.removeItem(FARMERS_CACHE_KEY); }catch(e){}
-    var metaRef = window.FB.doc(window.FB.db, "config", "farmersMeta");
-    window.FB.setDoc(metaRef, {version: new Date().toISOString()}).catch(function(){});
+    function bump(){
+      var metaRef = window.FB.doc(window.FB.db, "config", "farmersMeta");
+      window.FB.setDoc(metaRef, {version: new Date().toISOString()}).catch(function(){});
+    }
+    if(!_touchTimer){
+      bump();   // primera escritura: aviso inmediato
+      _touchTimer = setTimeout(function(){ _touchTimer = null; if(_touchPending){ _touchPending = false; bump(); } }, 800);
+    } else {
+      _touchPending = true;   // varias seguidas (importación): un solo aviso al final
+    }
   }
 
   function loadDespachos(){
@@ -774,7 +791,7 @@ var FBApi = (function(){
 
   /* ---------- Firestore: sincronización en tiempo real ---------- */
 
-  function subscribeCollection(collectionName, callback){
+  function subscribeCollection(collectionName, callback, onError){
     if(!isAvailable()) return function(){};
     var col = window.FB.collection(window.FB.db, collectionName);
     return window.FB.onSnapshot(col, function(snapshot){
@@ -782,9 +799,10 @@ var FBApi = (function(){
       snapshot.forEach(function(doc){
         items.push(Object.assign({_id: doc.id}, doc.data()));
       });
-      callback(items);
+      callback(items, !!(snapshot.metadata && snapshot.metadata.fromCache));
     }, function(err){
       console.error("[FB] Error en subscription " + collectionName + ":", err);
+      if(onError) onError(err);
     });
   }
 
@@ -793,7 +811,8 @@ var FBApi = (function(){
   function addDocument(collectionName, data){
     if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
     var col = window.FB.collection(window.FB.db, collectionName);
-    return window.FB.addDoc(col, data).then(function(ref){ touchFarmers(collectionName); return ref.id; });
+    touchFarmers(collectionName);
+    return window.FB.addDoc(col, data).then(function(ref){ return ref.id; });
   }
 
   function setDocument(collectionName, docId, data){
@@ -805,13 +824,15 @@ var FBApi = (function(){
   function updateDocument(collectionName, docId, data){
     if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
     var d = window.FB.doc(window.FB.db, collectionName, docId);
-    return window.FB.updateDoc(d, data).then(function(r){ touchFarmers(collectionName); return r; });
+    touchFarmers(collectionName);
+    return window.FB.updateDoc(d, data);
   }
 
   function deleteDocument(collectionName, docId){
     if(!isAvailable()) return Promise.reject(new Error("Firebase no disponible"));
     var d = window.FB.doc(window.FB.db, collectionName, docId);
-    return window.FB.deleteDoc(d).then(function(r){ touchFarmers(collectionName); return r; });
+    touchFarmers(collectionName);
+    return window.FB.deleteDoc(d);
   }
 
   /* ---------- Bulk import (para los 740 agricultores) ---------- */
@@ -1000,7 +1021,7 @@ var T = {
   noSecond:{es:"sin tiempo para otro viaje",en:"no time for another trip"},
   sgSingle:{es:"Sugerido: ",en:"Suggested: "},
   sgConvoy:{es:"Sugerido: Convoy (ambos camiones a este destino)",en:"Suggested: Convoy (both trucks to this destination)"},
-  sgNone:{es:"No se puede agendar este pedido hoy",en:"This order cannot be scheduled today"},
+  sgNone:{es:"No se puede agendar este pedido en este día",en:"This order cannot be scheduled today"},
   sgCapBig:{es:"Supera la capacidad de un solo camión y del convoy (máx. {C}). Divide el pedido en otro día.",en:"Exceeds single truck and convoy capacity (max {C}). Split across another day."},
   sgNoTruck:{es:"Ningún camión tiene capacidad y tiempo disponibles hoy. Prueba otro día.",en:"No truck has capacity and time available today. Try another day."},
   sgNoTime:{es:"Capacidad alcanza, pero el tiempo de jornada no permite el viaje a este destino hoy.",en:"Capacity fits, but the workday time does not allow the trip today."},
@@ -1267,7 +1288,7 @@ function setupRealtimeSync(){
   }
   var fDesp = first("despachos"), fDev = first("devoluciones"), fProd = first("producciones");
 
-  _realtimeUnsubs.push(FBApi.subscribeCollection("despachos", function(items){
+  _realtimeUnsubs.push(FBApi.subscribeCollection("despachos", function(items, fromCache){
     var newDispatches = {};
     var flat = [];
     items.forEach(function(d){
@@ -1283,7 +1304,7 @@ function setupRealtimeSync(){
     fDesp.done();
 
     // Detectar despachos nuevos de otros usuarios y avisar
-    checkNewDispatchAlerts(flat);
+    checkNewDispatchAlerts(flat, fromCache);
 
     if(currentUser){
       renderAll();
@@ -1293,7 +1314,7 @@ function setupRealtimeSync(){
       var invOv = document.getElementById("ovInventory");
       if(invOv && invOv.classList.contains("show")) renderInventory();
     }
-  }));
+  }, fDesp.done));
 
   _realtimeUnsubs.push(FBApi.subscribeCollection("entregas", function(items){
     var map = {};
@@ -1313,7 +1334,7 @@ function setupRealtimeSync(){
       var retOv = document.getElementById("ovReturns");
       if(retOv && retOv.classList.contains("show")) renderReturnsPanel();
     }
-  }));
+  }, fDev.done));
 
   // === Inventario Invernadero: sincronización tiempo real ===
   _realtimeUnsubs.push(FBApi.subscribeCollection("producciones", function(items){
@@ -1327,7 +1348,7 @@ function setupRealtimeSync(){
       var invOv = document.getElementById("ovInventory");
       if(invOv && invOv.classList.contains("show")) renderInventory();
     }
-  }));
+  }, fProd.done));
 
   // === Config Inventario (fmMapping, temporada): tiempo real ===
   // Solo sincronizamos cuando otro usuario cambie estos ajustes globales
@@ -1343,6 +1364,10 @@ function setupRealtimeSync(){
         state.season = cfg.season;
         changed = true;
       }
+      if(cfg.archivedSeasons && JSON.stringify(cfg.archivedSeasons) !== JSON.stringify(state.archivedSeasons||{})){
+        state.archivedSeasons = cfg.archivedSeasons;
+        changed = true;
+      }
       if(changed && currentUser){
         renderAll();
         var invOv2 = document.getElementById("ovInventory");
@@ -1350,6 +1375,18 @@ function setupRealtimeSync(){
       }
     }));
   }
+  // === Camiones / bodega (compartido entre todos) y días bloqueados ===
+  _realtimeUnsubs.push(FBApi.subscribeConfig("app", function(cfg){
+    if(cfg && cfg.config && cfg.config.trucks){
+      state.config = Object.assign(defaultConfig(), cfg.config);
+      if(currentUser) renderAll();
+    }
+  }));
+  _realtimeUnsubs.push(FBApi.subscribeConfig("calendar", function(cal){
+    state.calendar = {blocked: (cal && cal.blocked) || {}, weekdays: (cal && cal.weekdays) || []};
+    if(currentUser){ renderCalendar(); if(selDate) renderPanel(); }
+  }));
+
   // Espera la primera respuesta de cada colección (máx. 20 s si hay mala señal)
   return Promise.race([
     Promise.all([fDesp.p, fDev.p, fProd.p]),
@@ -1405,6 +1442,9 @@ function normalizeState(){
   if(!state.season) state.season = "WIN2526";
   if(!state.fmMapping) state.fmMapping = {};
   if(!state.archivedSeasons) state.archivedSeasons = {};
+  if(!state.calendar) state.calendar = {blocked:{}, weekdays:[]};
+  if(!state.calendar.blocked) state.calendar.blocked = {};
+  if(!state.calendar.weekdays) state.calendar.weekdays = [];
   // Migrate legacy single-object dispatches to arrays
   for(var k in state.dispatches){
     if(!Array.isArray(state.dispatches[k])){
@@ -1531,7 +1571,7 @@ function tryRestoreSession(){
         try{ sessionStorage.setItem(SESSION_USER_KEY, match.name); }catch(e){}
         console.log("[FB] Sesión Firebase restaurada:", match.name);
         // Carga los datos y muestra la app
-        loadFirebaseData().then(function(){ showApp(); });
+        loadFirebaseData().then(function(){ if(currentUser) showApp(); });
         return true;
       }
     }
@@ -1546,7 +1586,7 @@ function tryRestoreSession(){
             currentUser = m.name;
             try{ sessionStorage.setItem(SESSION_USER_KEY, m.name); }catch(e){}
             console.log("[FB] Sesión restaurada vía onAuthChange:", m.name);
-            loadFirebaseData().then(function(){ showApp(); });
+            loadFirebaseData().then(function(){ if(currentUser) showApp(); });
           }
         }
       });
@@ -1614,7 +1654,7 @@ function login(){
       passwordInput.value = "";
       // Cargar datos desde Firebase AHORA que estamos autenticados
       return loadFirebaseData().then(function(){
-        setTimeout(function(){ showApp(); }, 200);
+        setTimeout(function(){ if(currentUser) showApp(); }, 200);
       });
     })
     .catch(function(err){
@@ -1671,6 +1711,8 @@ function showApp(){
   document.getElementById("diagBtn").classList.toggle("hidden", !isAdmin());
 
   // Alertas de despachos nuevos
+  var cfgBtn = document.getElementById("t_bcfg");
+  if(cfgBtn) cfgBtn.classList.toggle("hidden", !isAdmin());
   var alertas = receivesAlerts();
   document.getElementById("notifBtn").classList.toggle("hidden", !alertas);
   if(alertas){
@@ -1682,11 +1724,14 @@ function showApp(){
     updateAppBadge(0);
   }
 
+  maybeDailyBackup();
   renderAll();
 }
 
 /* Pide permiso de notificaciones una sola vez, sin molestar al entrar */
 function maybeAskNotifPermission(){
+  if(window._notifAskedThisSession) return;
+  window._notifAskedThisSession = true;
   if(!("Notification" in window)) return;
   if(Notification.permission !== "default") return;
   var askedKey = "sps_notif_asked_" + normalizeUser(currentUser);
@@ -1757,31 +1802,44 @@ function travelMin(f){
   var t=truckById("big")||state.config.trucks[0];
   return Math.round(km/(+t.speed||55)*60);
 }
+/* Tiempo de ida por defecto cuando el agricultor no tiene ubicación (configurable) */
+function defaultTravelMin(){ var v = +(state.config && state.config.defaultTravelMin); return v > 0 ? v : 60; }
 function tripCost(f,t){
   var tv=travelMin(f);
-  if(tv==null) return null;
+  if(tv==null) tv = defaultTravelMin();   // sin ubicación: se asume un viaje estándar
   return (+t.loadMin||0)+2*tv+(+t.unloadMin||0);
 }
 function usedMin(arr,truckId){
   var s=0;
   (arr||[]).forEach(function(d){
-    if(d.truckIds.indexOf(truckId)>=0){
+    if((d.truckIds||[]).indexOf(truckId)>=0){
       var f=farmerById(d.farmerId);
       var t=truckById(truckId);
-      var c=tripCost(f,t);
-      if(c!=null) s+=c;
+      s+=tripCost(f,t);
     }
   });
   return s;
 }
+/* Despachos del día sin contar el que se está editando (para no descontarlo dos veces) */
+function dayArr(date){
+  var arr = state.dispatches[date]||[];
+  if(_editing) arr = arr.filter(function(d){ return d.id !== _editing.id; });
+  return arr;
+}
 function remMin(arr,truckId){var t=truckById(truckId);return workdayMin(t)-usedMin(arr,truckId);}
-function tripCountToday(arr,truckId){return (arr||[]).filter(function(d){return d.truckIds.indexOf(truckId)>=0;}).length;}
+function tripCountToday(arr,truckId){return (arr||[]).filter(function(d){return (d.truckIds||[]).indexOf(truckId)>=0;}).length;}
 function farmerById(id){return state.farmers.filter(function(f){return f.id===id;})[0]||null;}
 
 function suggest(date,trays,farmerId){
-  var arr = state.dispatches[date]||[], f = farmerById(farmerId);
+  var arr = dayArr(date), f = farmerById(farmerId);
   var tv = travelMin(f), km = distKm(f);
   var res = {mode:"none",truckIds:[],travelMin:tv,km:km,reasons:[]};
+  var usadas = dayTrays(arr);
+  if(usadas + trays > dayLimit()){
+    res.reasons.push("Límite diario de " + fmtNum(dayLimit()) + " bandejas: ya hay " + fmtNum(usadas)
+      + " agendadas, quedan " + fmtNum(Math.max(0, dayLimit() - usadas)) + ". Elige otro día.");
+    return res;
+  }
   if(trays > maxConvoy()){
     res.reasons.push(fmtL("sgCapBig",{C:maxConvoy()}));
     return res;
@@ -1791,21 +1849,59 @@ function suggest(date,trays,farmerId){
     var t = singles[i];
     if(t.capacity>=trays){
       var c = tripCost(f,t);
-      var fits = (c==null) || (remMin(arr,t.id)>=c);
-      if(fits){res.mode="single";res.truckIds=[t.id];return res;}
+      if(remMin(arr,t.id)>=c){res.mode="single";res.truckIds=[t.id];return res;}
     }
   }
   var capOk = singles.some(function(t){return t.capacity>=trays;});
   if(capOk) res.reasons.push(L("sgNoTime"));
   if(trays<=maxConvoy()){
     var allFit = state.config.trucks.every(function(t){
-      var c=tripCost(f,t);
-      return (c==null) || (remMin(arr,t.id)>=c);
+      return remMin(arr,t.id)>=tripCost(f,t);
     });
     if(allFit){res.mode="convoy";res.truckIds=state.config.trucks.map(function(t){return t.id;});res.reasons=[];return res;}
   }
   if(!res.reasons.length) res.reasons.push(L("sgNoTruck"));
   return res;
+}
+
+/* ============================ Bloqueo de días ============================ */
+/* Devuelve el motivo si el día está bloqueado (feriado, sin camiones, fin de semana), o "" */
+function dayBlockReason(ds){
+  var cal = state.calendar || {};
+  if(cal.blocked && cal.blocked[ds]) return cal.blocked[ds] || "Día bloqueado";
+  var wd = parseISO(ds).getDay();   // 0 = domingo
+  if((cal.weekdays || []).indexOf(wd) >= 0){
+    return ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"][wd] + ": sin despachos";
+  }
+  return "";
+}
+function saveCalendar(){
+  state.calendar = state.calendar || {blocked:{}, weekdays:[]};
+  if(storageMode === "firebase" && FBApi.isAvailable()){
+    return FBApi.setDocument("config", "calendar", {
+      blocked: state.calendar.blocked || {}, weekdays: state.calendar.weekdays || [],
+      updatedAt: new Date().toISOString(), updatedBy: currentUser || ""
+    }).catch(function(e){ alert("❌ No se pudo guardar el bloqueo: " + e.message); });
+  }
+  saveState();
+  return Promise.resolve();
+}
+function toggleBlockDay(ds){
+  if(!isAdmin()) return;
+  state.calendar = state.calendar || {blocked:{}, weekdays:[]};
+  state.calendar.blocked = state.calendar.blocked || {};
+  if(state.calendar.blocked[ds]){
+    if(!confirm("¿Desbloquear el " + dayLong(ds) + "?")) return;
+    delete state.calendar.blocked[ds];
+  } else {
+    var n = (state.dispatches[ds]||[]).length;
+    var motivo = prompt("Motivo del bloqueo del " + dayLong(ds) + ":"
+      + (n ? "\n\n⚠ Ya hay " + n + " despacho(s) ese día; no se borran." : ""), "Feriado");
+    if(motivo === null) return;
+    state.calendar.blocked[ds] = motivo.trim() || "Día bloqueado";
+  }
+  saveCalendar();
+  renderAll();
 }
 
 /* ============================ Rendering ============================ */
@@ -1856,6 +1952,8 @@ function fmtNum(n){return new Intl.NumberFormat(lang==="es"?"es-CL":"en-US").for
 function monthName(d){return d.toLocaleDateString(lang==="es"?"es-CL":"en-US",{month:"long",year:"numeric"});}
 function dayLong(s){return parseISO(s).toLocaleDateString(lang==="es"?"es-CL":"en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"});}
 function dayTrays(arr){return (arr||[]).reduce(function(s,d){return s+(+d.trays||0);},0);}
+/* Máximo de bandejas que se pueden despachar en un día (Configuración) */
+function dayLimit(){ var v = +(state.config && state.config.maxTraysPerDay); return v > 0 ? v : 800; }
 
 function renderStats(){
   var keys = Object.keys(state.dispatches).filter(function(k){return (state.dispatches[k]||[]).length;});
@@ -1877,6 +1975,7 @@ function renderStats(){
 
 function dayClass(arr){
   if(!arr||!arr.length) return "free";
+  if(dayTrays(arr) >= dayLimit()) return "full";
   var full = state.config.trucks.every(function(t){
     return remMin(arr,t.id) < ((+t.loadMin||0)+(+t.unloadMin||0));
   });
@@ -1893,12 +1992,14 @@ function renderCalendar(){
   for(var d=1; d<=dim; d++){
     var ds = y+"-"+String(m+1).padStart(2,"0")+"-"+String(d).padStart(2,"0");
     var arr = state.dispatches[ds]||[], dc = dayClass(arr), past = ds < tStr, cls="day";
+    var blockedR = dayBlockReason(ds);
     if(dc==="partial") cls+=" partial";
     else if(dc==="full") cls+=" full";
     else if(past) cls+=" muted";
+    if(blockedR && !past) cls+=" blocked";
     if(ds===tStr) cls+=" today";
     if(ds===selDate) cls+=" sel";
-    var inner = '<span class="dnum">'+d+'</span>';
+    var inner = '<span class="dnum">'+d+'</span>' + (blockedR && !past ? '<span class="dblock" title="'+esc(blockedR)+'">🚫</span>' : '');
     if(arr.length){
       var dots = state.config.trucks.map(function(t){
         var used = tripCountToday(arr,t.id)>0;
@@ -1907,7 +2008,7 @@ function renderCalendar(){
       }).join("");
       inner += '<span class="cellfoot"><span class="ctrays">'+fmtNum(dayTrays(arr))+'</span><span class="cdots">'+dots+'</span></span>';
     }
-    var clickable = arr.length || !past;
+    var clickable = arr.length || !past || isAdmin();
     cells.push('<div class="'+cls+'"' + (clickable?' onclick="pickDay(\''+ds+'\')"':'') + '>'+inner+'</div>');
   }
   document.getElementById("days").innerHTML = cells.join("");
@@ -1916,8 +2017,47 @@ function renderCalendar(){
 function moveMonth(n){view.setMonth(view.getMonth()+n);renderCalendar();}
 function pickDay(ds){selDate=ds;renderCalendar();renderPanel();}
 
+/* El formulario se conserva cuando la pantalla se redibuja (actualizaciones en
+   tiempo real, cambio de día, cerrar una ventana). Solo se limpia al guardar o cancelar. */
+var _formCache = null, _formReset = false;
+function captureDispatchForm(){
+  var panel = document.getElementById("panel");
+  if(!panel || !document.getElementById("f_grower")) return null;
+  var m = {};
+  panel.querySelectorAll("input[id^=f_], select[id^=f_], textarea[id^=f_]").forEach(function(el){
+    m[el.id] = {v: el.value, manual: el.dataset ? (el.dataset.manual || "") : ""};
+  });
+  return m;
+}
+function restoreDispatchForm(m){
+  if(!m) return;
+  var prod = document.getElementById("f_production");
+  if(prod && m.f_production && m.f_production.v){
+    prod.value = m.f_production.v;
+    if(prod.value === m.f_production.v) onProductionSelected();
+  }
+  var gSel = document.getElementById("f_grower");
+  if(gSel && m.f_grower && m.f_grower.v && !gSel.querySelector('option[value="'+m.f_grower.v+'"]')){
+    ensureGrowerOption(m.f_grower.v);
+  }
+  Object.keys(m).forEach(function(id){
+    if(id === "f_production" || id === "f_date") return;
+    var el = document.getElementById(id);
+    if(!el) return;
+    el.value = m[id].v;
+    if(el.dataset) el.dataset.manual = m[id].manual || "";
+  });
+}
+function clearDispatchForm(){
+  _formCache = null; _formReset = true; _growerFilter = "";
+  renderPanel();
+}
+
 function renderPanel(){
   var panel = document.getElementById("panel"), title = document.getElementById("panelTitle");
+  var cur = captureDispatchForm();
+  if(cur) _formCache = cur;
+  if(_formReset){ _formCache = null; _formReset = false; }
   if(!selDate){
     title.textContent = L("upcoming");
     panel.innerHTML = renderUpcoming();
@@ -1925,8 +2065,10 @@ function renderPanel(){
   }
   title.textContent = L("dayCap");
   panel.innerHTML = renderDay(selDate);
+  if(!document.getElementById("f_grower")) return;   // día sin formulario (pasado o bloqueado)
   fillGrowerSelect();
   fillProductionSelect();
+  if(_formCache) restoreDispatchForm(_formCache);
   updateSuggestion();
 }
 
@@ -1995,6 +2137,16 @@ function buildDriverMessage(ds, d){
 }
 
 /* ===== Seguimiento del chofer (inicio / término de despacho) ===== */
+/* Borra el registro del chofer y sus fotos (al eliminar despachos) */
+function deleteDriverData(tokens){
+  if(!tokens || !tokens.length || storageMode !== "firebase" || !FBApi.isAvailable()) return Promise.resolve();
+  var fotoIds = [];
+  tokens.forEach(function(t){ fotoIds.push(t + "_inicio", t + "_termino"); });
+  return Promise.all([
+    FBApi.bulkDelete("entregas", tokens),
+    FBApi.bulkDelete("entregasFotos", fotoIds)
+  ]).catch(function(e){ console.warn("[Entregas] borrar:", e.message); });
+}
 function newDriverToken(){
   var chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
   var arr = new Uint32Array(24), out = "";
@@ -2110,8 +2262,8 @@ function openEntregaFotos(token){
       h += '<div style="margin-bottom:16px"><div style="font-weight:700;color:var(--navy);margin-bottom:6px">' + et[1]
         + ' · ' + esc(fmtHoraCorta(info.atLocal)) + '</div>';
       var src = fotos[idx];
-      if(src && /^data:image\/(jpeg|png|webp);base64,/.test(src)){
-        h += '<a href="' + src + '" download="despacho_' + et[0] + '.jpg"><img src="' + src + '" style="max-width:100%;border-radius:8px;border:1px solid var(--line)"></a>';
+      if(typeof src === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(src)){
+        h += '<a href="' + esc(src) + '" download="despacho_' + et[0] + '.jpg"><img src="' + esc(src) + '" style="max-width:100%;border-radius:8px;border:1px solid var(--line)"></a>';
       } else {
         h += '<div style="color:var(--muted);font-size:13px">Sin foto</div>';
       }
@@ -2144,12 +2296,11 @@ function checkEntregaAlerts(items){
   var titulo = n.etapa === "termino" ? "✅ Despacho entregado" : "🚚 Despacho iniciado";
   var texto = (r.agricultor || "") + " · " + fmtNum(info.bandejas) + " bandejas"
     + (n.etapa === "termino" && info.recibio ? " · recibió " + info.recibio : (info.chofer ? " · " + info.chofer : ""));
-  playAlertSound();
-  vibrateAlert();
+  if(!notifState.muted){ playAlertSound(); vibrateAlert(); }
   entregaToast(titulo, texto, r.fecha);
   try{
     if("Notification" in window && Notification.permission === "granted"){
-      new Notification(titulo, {body: texto, icon: "icon-192.png", tag: "sps-entrega-" + n.e._id + n.etapa});
+      sysNotify(titulo, {body: texto, tag: "sps-entrega-" + n.e._id + n.etapa});
     }
   }catch(e){}
 }
@@ -2199,6 +2350,12 @@ function openWhatsAppWithText(msg){
 function renderDay(ds){
   var arr = state.dispatches[ds]||[];
   var html = '<div class="seldate">'+dayLong(ds)+'</div>';
+  var totDia = dayTrays(arr), lim = dayLimit(), pctDia = Math.min(100, Math.round(totDia/lim*100));
+  html += '<div class="tk daytot"><div class="tkhead"><span class="tkname">📦 Bandejas del día</span>'
+    + '<span class="tkcap"' + (totDia > lim ? ' style="color:var(--danger);font-weight:700"' : '') + '>' + fmtNum(totDia) + ' / ' + fmtNum(lim) + '</span></div>'
+    + '<div class="bar"><i class="'+(pctDia>=85?"hot":"")+'" style="width:'+pctDia+'%"></i></div>'
+    + '<div class="tkmeta"><span>' + (totDia > lim ? '⚠ Excede el límite en ' + fmtNum(totDia - lim) + ' bandejas: reagenda algún despacho'
+        : 'Quedan ' + fmtNum(lim - totDia) + ' bandejas disponibles') + '</span></div></div>';
   // Truck utilization bars
   html += '<div class="trucks">';
   state.config.trucks.forEach(function(t){
@@ -2246,6 +2403,7 @@ function renderDay(ds){
         + (!href && canShareToDriver() && farmerById(d.farmerId) ? '<a href="#" style="color:var(--danger)" onclick="editFarmerLocation(\''+d.farmerId+'\');return false;">'+pinSvg()+'Agregar ubicación</a>' : '')
         + (canShareToDriver() ? '<a href="#" class="wa-share" onclick="shareDispatchWhatsApp(\''+ds+'\',\''+d.id+'\');return false;">'+waSvg()+'WhatsApp conductor</a>' : '')
         + (canEditDispatch(d) ? '<span class="acts">'
+            + '<button class="btn ghost sm" onclick="reagendar(\''+ds+'\',\''+d.id+'\')">📅 Reagendar</button>'
             + '<button class="btn ghost sm" onclick="editDispatch(\''+ds+'\',\''+d.id+'\')">'+L("edit")+'</button>'
             + '<button class="btn danger sm" onclick="delDispatch(\''+ds+'\',\''+d.id+'\')">'+L("del")+'</button>'
             + '</span>' : '')
@@ -2253,13 +2411,43 @@ function renderDay(ds){
     });
     html += '</div>';
   }
-  // Add dispatch form
-  html += '<div class="sec"><h4>'+L("addDisp")+'</h4>'
+  // Estado del día: pasado / bloqueado
+  var isPast = ds < todayStr();
+  var blockR = dayBlockReason(ds);
+  if(isAdmin() && !isPast){
+    var manual = state.calendar && state.calendar.blocked && state.calendar.blocked[ds];
+    html += '<div style="display:flex;justify-content:flex-end;margin:8px 0 0"><button class="btn ghost sm" onclick="toggleBlockDay(\''+ds+'\')">'
+      + (manual ? '🔓 Desbloquear día' : '🚫 Bloquear día') + '</button></div>';
+  }
+  if(isPast && !(_editing && isAdmin())){
+    html += '<div class="daynote">📅 Día pasado: no se pueden agendar despachos.</div>';
+    return html;
+  }
+  if(blockR && !_editing){
+    html += '<div class="daynote blocked">🚫 <strong>Día bloqueado:</strong> ' + esc(blockR)
+      + (isAdmin() ? '<br><span style="font-size:12px">Como administrador puedes desbloquearlo arriba.</span>' : '') + '</div>';
+    return html;
+  }
+  // Add / edit dispatch form
+  var editBar = "";
+  if(_editing){
+    var ef = farmerById(_editing.orig.farmerId);
+    editBar = '<div class="editbar">✏️ Editando el despacho de <strong>' + esc(ef ? ef.name : (_editing.orig.farmerName||"")) + '</strong>'
+      + ' (' + esc(dayLong(_editing.date)) + ')'
+      + (_editing.date !== ds ? '<br>Al guardar se <strong>moverá</strong> a este día.' : '')
+      + '<br><button class="btn ghost sm" style="margin-top:6px" onclick="cancelEdit()">Cancelar edición</button></div>';
+  }
+  var dateField = _editing
+    ? '<label class="fl" style="color:var(--navy)">📅 Fecha del despacho</label>'
+      + '<input type="date" id="f_date" value="'+ds+'" min="'+(isAdmin() ? '' : todayStr())+'" onchange="moveEditDate(this.value)">'
+    : '';
+  html += '<div class="sec" id="dispForm"><h4>'+(_editing ? '✏️ Editar despacho' : L("addDisp"))+'</h4>' + editBar + dateField
+    + ''
     + '<label class="fl" style="color:#0f7d3d">🌱 Producción del Invernadero (opcional — auto-completa SPS, contrato y germinación)</label>'
     + '<select id="f_production" onchange="onProductionSelected()"></select>'
     + '<div id="prodStockInfo" style="margin-top:6px;font-size:12px"></div>'
     + '<label class="fl">'+L("grower")+'</label>'
-    + '<input type="text" id="f_grower_search" placeholder="🔍 Buscar agricultor por nombre, comuna, RUT..." '
+    + '<input type="text" id="f_grower_search" value="'+esc(_growerFilter)+'" placeholder="🔍 Buscar agricultor por nombre, comuna, RUT..." '
     + 'oninput="filterGrowers(this.value)" style="margin-bottom:4px;font-size:13.5px">'
     + '<select id="f_grower" size="1" onchange="growerSelChange();updateSuggestion()" style="max-height:none"></select>'
     + '<div id="grower_stats" style="font-size:11px;color:var(--muted);margin-top:2px"></div>'
@@ -2291,7 +2479,7 @@ function renderDay(ds){
     + '<div><label class="fl">'+L("origin")+'</label><input id="f_origin" list="ghouses"><datalist id="ghouses">'+ghouseOpts()+'</datalist></div>'
     + '</div>'
     + '<label class="fl">Observaciones</label><input id="f_notes" placeholder="Notas del despacho">'
-    + '<button class="btn primary" style="width:100%;margin-top:14px" onclick="addDispatch()">'+L("schedule")+'</button></div>';
+    + '<button class="btn primary" id="saveDispBtn" style="width:100%;margin-top:14px" onclick="addDispatch()">'+(_editing ? '💾 Guardar cambios' : L("schedule"))+'</button></div>';
   return html;
 }
 
@@ -2312,6 +2500,7 @@ var _growerFilter = "";  // Filtro de búsqueda actual
 function fillGrowerSelect(){
   var sel = document.getElementById("f_grower");
   if(!sel) return;
+  var prevVal = sel.value;
   var q = (_growerFilter||"").toLowerCase().trim();
   var visible = state.farmers.filter(function(f){
     if(!q) return true;
@@ -2330,6 +2519,11 @@ function fillGrowerSelect(){
   });
   h += '<option value="__new">'+L("addGrower")+'</option>';
   sel.innerHTML = h;
+  // Mantiene el agricultor ya elegido aunque el filtro no lo muestre
+  if(prevVal && prevVal !== "__new"){
+    if(!sel.querySelector('option[value="'+prevVal+'"]')) ensureGrowerOption(prevVal);
+    sel.value = prevVal;
+  }
 
   // Estadísticas
   var stats = document.getElementById("grower_stats");
@@ -2345,6 +2539,17 @@ function fillGrowerSelect(){
 function filterGrowers(query){
   _growerFilter = query || "";
   fillGrowerSelect();
+  updateSuggestion();
+}
+/* Agrega al selector un agricultor que no está en la lista (filtrado o eliminado) */
+function ensureGrowerOption(id){
+  var sel = document.getElementById("f_grower");
+  if(!sel || !id || sel.querySelector('option[value="'+id+'"]')) return;
+  var f = farmerById(id);
+  var o = document.createElement("option");
+  o.value = id;
+  o.textContent = f ? (f.name + (f.comuna ? " · " + f.comuna : "")) : ((_editing && _editing.orig.farmerName) || "Agricultor") + " (no está en la lista)";
+  sel.insertBefore(o, sel.options[1] || null);
 }
 
 function fillProductionSelect(){
@@ -2370,6 +2575,18 @@ function fillProductionSelect(){
     });
   }
   sel.innerHTML = h;
+  // Al editar, la producción del despacho siempre debe estar en la lista (aunque no tenga stock)
+  if(_editing && _editing.orig.productionId) ensureProductionOption(_editing.orig.productionId, _editing.orig.spsCode);
+}
+function ensureProductionOption(pid, spsCode){
+  var sel = document.getElementById("f_production");
+  if(!sel || !pid || sel.querySelector('option[value="'+pid+'"]')) return;
+  var p = getProductionById(pid);
+  var o = document.createElement("option");
+  o.value = pid;
+  o.textContent = p ? (p.spsCode + " · Contrato " + p.contrato + " · " + (p.especie||"") + " (de este despacho)")
+    : "Producción vinculada (" + (spsCode||"") + ")";
+  sel.appendChild(o);
 }
 
 function onProductionSelected(){
@@ -2444,10 +2661,12 @@ function updateSuggestion(){
   var trays = parseInt(document.getElementById("f_trays").value,10);
   if(!gid || !trays || trays<1){box.innerHTML=""; return;}
   var f = farmerById(gid), s = suggest(selDate,trays,gid);
-  var est = (s.km!=null) ? fmtL("estTo",{KM:s.km.toFixed(1),M:s.travelMin}) : L("noTime");
+  var arr = dayArr(selDate);
+  var est = (s.km!=null) ? fmtL("estTo",{KM:s.km.toFixed(1),M:s.travelMin})
+    : (s.travelMin!=null ? "Viaje estimado: " + s.travelMin + " min de ida"
+    : "Agricultor sin ubicación: se estima " + defaultTravelMin() + " min de ida");
   if(s.mode==="single"){
     var t = truckById(s.truckIds[0]);
-    var arr = state.dispatches[selDate]||[];
     var c = tripCost(f,t);
     var rem = remMin(arr,t.id);
     var after = (c!=null)?(rem-c):null;
@@ -2461,6 +2680,19 @@ function updateSuggestion(){
 }
 
 function addDispatch(){
+  if(_savingDispatch) return;
+  if(!selDate) return;
+  var todayS = todayStr();
+  if(selDate < todayS && !(_editing && isAdmin())){
+    alert("📅 No se pueden agendar despachos en días pasados. Elige hoy o una fecha futura.");
+    return;
+  }
+  var blockR = dayBlockReason(selDate);
+  if(_editing && _editing.date === selDate) blockR = "";   // corregir un despacho existente sí se permite
+  if(blockR){
+    if(!isAdmin()){ alert("🚫 Día bloqueado: " + blockR + "\n\nElige otro día."); return; }
+    if(!confirm("🚫 Este día está bloqueado (" + blockR + ").\n\n¿Agendar de todas formas?")) return;
+  }
   var gid = document.getElementById("f_grower").value;
   var trays = parseInt(document.getElementById("f_trays").value,10);
   var plants = parseInt(document.getElementById("f_plants").value,10) || 0;
@@ -2483,7 +2715,7 @@ function addDispatch(){
   var prodSelEl = document.getElementById("f_production");
   var productionId = prodSelEl ? prodSelEl.value : "";
 
-  if(!gid){alert(L("needGrower"));return;}
+  if(!gid || gid === "__new"){alert(L("needGrower"));return;}
   if(!trays || trays<1){alert(L("needTrays"));return;}
   if(!contract || !sps){alert(L("needContract"));return;}
 
@@ -2492,11 +2724,14 @@ function addDispatch(){
     var prod = getProductionById(productionId);
     if(prod){
       var snap = getProductionSnapshot(prod);
-      if(trays > snap.stockBandejas){
+      // Al editar, las bandejas del propio despacho vuelven al stock disponible
+      var disponible = snap.stockBandejas
+        + ((_editing && _editing.orig.productionId === productionId) ? (+_editing.orig.trays || 0) : 0);
+      if(trays > disponible){
         alert("❌ STOCK INSUFICIENTE\n\n"
           + "Producción: " + prod.spsCode + " (Contrato " + prod.contrato + ")\n"
           + "Solicitado: " + trays + " bandejas\n"
-          + "Disponible: " + snap.stockBandejas + " bandejas\n\n"
+          + "Disponible: " + disponible + " bandejas\n\n"
           + "Ajuste la cantidad o seleccione otra producción.");
         return;
       }
@@ -2509,31 +2744,39 @@ function addDispatch(){
     }
   }
 
-  var f = farmerById(gid), truckIds;
+  var f = farmerById(gid) || (_editing && _editing.orig.farmerId === gid
+    ? {name: _editing.orig.farmerName || "", phone: _editing.orig.phone || "", address: _editing.orig.address || ""} : null);
+  if(!f){ alert(L("needGrower")); return; }
+  var truckIds;
   if(pick==="auto"){
     var s = suggest(selDate,trays,gid);
     if(s.mode==="none"){alert(L("sgNone")+":\n• "+s.reasons.join("\n• "));return;}
     truckIds = s.truckIds;
   } else if(pick==="convoy"){
     truckIds = state.config.trucks.map(function(t){return t.id;});
+    if(trays > maxConvoy() && !confirm(fmtL("warnCapManual",{N:trays,C:maxConvoy()})+"\n\nOK?")) return;
   } else {
     truckIds = [pick];
     var t = truckById(pick);
     if(t.capacity<trays && !confirm(fmtL("warnCapManual",{N:trays,C:t.capacity})+"\n\nOK?")) return;
   }
   if(pick!=="auto"){
-    var arr = state.dispatches[selDate]||[];
+    var usadasDia = dayTrays(dayArr(selDate));
+    if(usadasDia + trays > dayLimit()){
+      var msgLim = "Límite diario de " + fmtNum(dayLimit()) + " bandejas: ese día ya tiene " + fmtNum(usadasDia)
+        + " y quedan " + fmtNum(Math.max(0, dayLimit() - usadasDia)) + ".";
+      if(!isAdmin()){ alert("🚫 " + msgLim + "\n\nElige otro día."); return; }
+      if(!confirm("⚠ " + msgLim + "\n\n¿Agendar de todas formas?")) return;
+    }
+    var arr = dayArr(selDate);
     var bad = truckIds.some(function(id){
-      var c = tripCost(f,truckById(id));
-      return c!=null && remMin(arr,id)<c;
+      return remMin(arr,id) < tripCost(f,truckById(id));
     });
     if(bad && !confirm(L("warnTimeManual")+"\n\nOK?")) return;
   }
 
-  if(!state.dispatches[selDate]) state.dispatches[selDate] = [];
-  var newDispatch = {
-    id: uid(),
-    productionId: productionId || "",  // NUEVO: enlace a producción
+  var fields = {
+    productionId: productionId || "",
     farmerId: gid,
     farmerName: f.name,
     phone: f.phone||"",
@@ -2553,40 +2796,73 @@ function addDispatch(){
     contractNumber: contract,
     spsCode: sps,
     responsible: responsible,
+    date: selDate
+  };
+
+  // Evita doble clic; se libera al instante siguiente (las escrituras quedan en cola
+  // aunque no haya señal, así que no se espera la respuesta del servidor)
+  _savingDispatch = true;
+  setTimeout(function(){ _savingDispatch = false; }, 700);
+
+  // ===== Edición: se actualiza el MISMO despacho (no se borra ni cambia de dueño) =====
+  if(_editing){
+    var ed = _editing;
+    fields.updatedAt = new Date().toISOString();
+    fields.updatedBy = currentUser;
+    if(storageMode === "firebase"){
+      var merged = Object.assign({}, ed.orig, fields, {id: ed.id});
+      FBApi.updateDocument("despachos", ed.id, fields).catch(function(err){
+        alert("❌ Error guardando los cambios:\n" + err.message);
+      });
+      if(merged.driverToken){
+        FBApi.updateDocument("entregas", merged.driverToken, {resumen: driverResumen(merged.date, merged), dispatchId: ed.id})
+          .catch(function(e){ console.warn("[Entregas] resumen:", e.message); });
+      }
+      _editing = null;
+      clearDispatchForm();
+      return;
+    }
+    // Modo local
+    var orig = null;
+    Object.keys(state.dispatches).forEach(function(k){
+      var i = (state.dispatches[k]||[]).findIndex(function(x){ return x.id === ed.id; });
+      if(i >= 0){ orig = state.dispatches[k][i]; state.dispatches[k].splice(i,1); if(!state.dispatches[k].length) delete state.dispatches[k]; }
+    });
+    var updated = Object.assign({}, orig || ed.orig, fields, {id: ed.id});
+    if(!state.dispatches[selDate]) state.dispatches[selDate] = [];
+    state.dispatches[selDate].push(updated);
+    _editing = null;
+    saveState();
+    clearDispatchForm();
+    renderAll();
+    return;
+  }
+
+  // ===== Nuevo despacho =====
+  var newDispatch = Object.assign({
+    id: uid(),
     user: currentUser,
     senderEmail: corporateEmail(currentUser),
     status: "pending",
     sentAt: "",
-    createdAt: new Date().toISOString(),
-    date: selDate
-  };
-  if(_editCarry && _editCarry.farmerId === gid){
-    newDispatch.driverToken = _editCarry.driverToken;
-  }
-  _editCarry = null;
+    createdAt: new Date().toISOString()
+  }, fields);
 
-  // Si Firebase está activo, guardar allí primero
   if(storageMode === "firebase"){
-    // Preparar copia sin el 'id' local — Firebase asigna su propio ID
     var toSave = Object.assign({}, newDispatch);
     delete toSave.id;
     FBApi.addDocument("despachos", toSave).then(function(docId){
       console.log("[FB] Despacho guardado con ID:", docId);
-      if(newDispatch.driverToken){
-        newDispatch.id = docId;
-        FBApi.updateDocument("entregas", newDispatch.driverToken, {
-          dispatchId: docId, resumen: driverResumen(newDispatch.date, newDispatch)
-        }).catch(function(e){ console.warn("[Entregas] relink:", e.message); });
-      }
-      // La subscription realtime traerá el dispatch con id = docId
-      // No renderizamos ni pusheamos aquí para evitar duplicados
     }).catch(function(err){
       alert("❌ Error guardando en Firebase:\n" + err.message);
       console.error(err);
     });
+    clearDispatchForm();   // la suscripción en tiempo real trae el despacho
   } else {
+    if(!state.dispatches[selDate]) state.dispatches[selDate] = [];
     state.dispatches[selDate].push(newDispatch);
     saveState();
+    clearDispatchForm();
     renderAll();
   }
 }
@@ -2596,10 +2872,12 @@ function delDispatch(ds,id){
   if(!d || !canEditDispatch(d)){alert(lang==="es"?"No tiene permiso para eliminar este registro.":"You don't have permission to delete this record.");return;}
   if(!confirm(L("confirmDel"))) return;
 
+  if(_editing && _editing.id === id){ _editing = null; _formReset = true; }
   if(storageMode === "firebase"){
     console.log("[FB] Eliminando despacho ID:", id);
     FBApi.deleteDocument("despachos", id).then(function(){
       console.log("[FB] Despacho eliminado ✓");
+      if(d.driverToken) deleteDriverData([d.driverToken]);
       // La subscription realtime actualizará automáticamente el state
     }).catch(function(err){
       console.error("[FB] Error eliminando despacho:", err);
@@ -2615,41 +2893,63 @@ function delDispatch(ds,id){
   renderAll();
 }
 
+/* Editar: carga el despacho en el formulario SIN borrarlo. Si se cancela o se
+   cierra la app, el despacho original queda intacto. */
+var _editing = null, _savingDispatch = false;
 function editDispatch(ds,id){
   var d = (state.dispatches[ds]||[]).filter(function(x){return x.id===id;})[0];
   if(!d || !canEditDispatch(d)) return;
-
-  // En modo Firebase: eliminar primero del backend, luego cargar en el form
-  if(storageMode === "firebase"){
-    console.log("[FB] Editar despacho: eliminando del backend ID:", id);
-    FBApi.deleteDocument("despachos", id).then(function(){
-      // La subscription actualizará el state
-      // Ahora poblamos el formulario con los datos del despacho
-      _populateDispatchForm(d);
-    }).catch(function(err){
-      console.error("[FB] Error eliminando para editar:", err);
-      alert("❌ Error al preparar edición: " + err.message);
-    });
+  if(ds < todayStr() && !isAdmin()){
+    alert("📅 Este despacho es de un día pasado. Solo el administrador puede modificarlo.");
     return;
   }
-
-  // Modo local
-  state.dispatches[ds] = state.dispatches[ds].filter(function(x){return x.id!==id;});
-  if(!state.dispatches[ds].length) delete state.dispatches[ds];
+  _editing = {id: d.id, date: ds, orig: Object.assign({}, d)};
+  selDate = ds;
+  _formCache = null; _formReset = true; _growerFilter = "";
   renderCalendar();
   renderPanel();
   _populateDispatchForm(d);
 }
+/* Cambia el día del despacho que se está editando (reagendar) */
+function moveEditDate(v){
+  if(!_editing || !v) return;
+  if(v < todayStr() && !isAdmin()){
+    alert("📅 No se puede reagendar a un día pasado.");
+    var fd = document.getElementById("f_date"); if(fd) fd.value = selDate;
+    return;
+  }
+  selDate = v;
+  var p = v.split("-"); view = new Date(+p[0], +p[1]-1, 1);
+  renderCalendar();
+  renderPanel();
+  var fd2 = document.getElementById("f_date"); if(fd2) fd2.value = v;
+  updateSuggestion();
+}
+/* Botón "Reagendar": abre la edición con la fecha lista para cambiar */
+function reagendar(ds, id){
+  editDispatch(ds, id);
+  var fd = document.getElementById("f_date");
+  if(fd){
+    fd.scrollIntoView && fd.scrollIntoView({behavior:"smooth", block:"center"});
+    setTimeout(function(){ try{ fd.focus(); if(fd.showPicker) fd.showPicker(); }catch(e){} }, 350);
+  }
+}
+function cancelEdit(){
+  _editing = null;
+  clearDispatchForm();
+}
 
 /* Pobla el formulario con los datos de un despacho para editar */
-var _editCarry = null;   // conserva el link del chofer al editar un despacho
 function _populateDispatchForm(d){
-  _editCarry = d.driverToken ? {driverToken: d.driverToken, farmerId: d.farmerId} : null;
-  // Asegurar que el panel esté renderizado (los campos deben existir en el DOM)
-  if(!document.getElementById("f_grower")){
-    renderPanel();
-  }
+  if(!document.getElementById("f_grower")) return;
+  ensureGrowerOption(d.farmerId);
   document.getElementById("f_grower").value = d.farmerId||"";
+  var prodSel = document.getElementById("f_production");
+  if(prodSel && d.productionId){
+    ensureProductionOption(d.productionId, d.spsCode);
+    prodSel.value = d.productionId;
+    if(getProductionById(d.productionId)) onProductionSelected();
+  }
   document.getElementById("f_trays").value = d.trays||"";
   document.getElementById("f_plants").value = d.plants||"";
   document.getElementById("f_plants").dataset.manual = d.plants ? "1" : "";
@@ -2666,12 +2966,9 @@ function _populateDispatchForm(d){
   document.getElementById("f_resp").value = d.responsible||"";
   document.getElementById("f_origin").value = d.origin||"";
   document.getElementById("f_notes").value = d.notes||"";
-  var prodSel = document.getElementById("f_production");
-  if(prodSel && d.productionId) prodSel.value = d.productionId;
   updateSuggestion();
-  // Scroll al formulario
-  var f = document.getElementById("f_trays");
-  if(f && f.scrollIntoView) f.scrollIntoView({behavior:"smooth", block:"center"});
+  var fm = document.getElementById("dispForm");
+  if(fm && fm.scrollIntoView) fm.scrollIntoView({behavior:"smooth", block:"start"});
 }
 
 /* ============================ Farmer Import ============================ */
@@ -2750,6 +3047,8 @@ function importFarmers(ev){
             };
             if(storageMode === "firebase"){
               toAddFirebase.push(farmer);
+              if(inc.rut) byRut[normalizeRut(inc.rut)] = farmer;      // evita duplicados dentro del mismo archivo
+              if(inc.name) byName[normalizeName(inc.name)] = farmer;
             } else {
               farmer.id = uid();
               state.farmers.push(farmer);
@@ -2765,13 +3064,18 @@ function importFarmers(ev){
       if(storageMode === "firebase" && toAddFirebase.length){
         alert("Importando " + toAddFirebase.length + " agricultores a Firebase...\n\nEste proceso puede tardar 30-60 segundos.");
         FBApi.bulkImport("agricultores", toAddFirebase).then(function(count){
+          // Recarga la lista para que los nuevos aparezcan de inmediato
+          FBApi.loadAgricultores().then(function(items){
+            state.farmers = items.map(function(f){ return Object.assign({}, f, {id: f._id}); });
+            renderAll();
+          }).catch(function(){});
           alert(
             "✓ Importación a Firebase completada\n\n" +
             "  Nuevos agregados:      " + count + "\n" +
             "  Existentes completados: " + stats.updated + "\n" +
             "  Descartados (sin nombre): " + stats.skipped + "\n" +
             "  Errores:                " + stats.errors + "\n\n" +
-            "Los datos se sincronizarán en unos segundos."
+            "Total agricultores en base: " + (state.farmers.length + count)
           );
         }).catch(function(err){
           alert("❌ Error en importación bulk: " + err.message);
@@ -2803,13 +3107,19 @@ function importFarmers(ev){
    - returned:   total de bandejas ya devueltas
    - balance:    dispatched - returned (bandejas actualmente en poder del agricultor)
    Los despachos futuros (fecha > hoy) no cuentan porque las bandejas aún no salieron. */
+/* Bandejas que realmente llegaron: si el chofer confirmó la entrega, se usa ese número */
+function traysDelivered(d){
+  var e = (typeof entregaOf === "function") ? entregaOf(d) : null;
+  if(e && e.termino && e.termino.bandejas != null && !isNaN(+e.termino.bandejas)) return +e.termino.bandejas;
+  return +d.trays || 0;
+}
 function farmerBalance(farmerId){
   var today = todayStr();
   var dispatched = 0, returned = 0;
   for(var k in state.dispatches){
     if(k > today) continue;
     (state.dispatches[k]||[]).forEach(function(d){
-      if(d.farmerId === farmerId) dispatched += (+d.trays||0);
+      if(d.farmerId === farmerId) dispatched += traysDelivered(d);
     });
   }
   (state.returns||[]).forEach(function(r){
@@ -2826,7 +3136,7 @@ function allFarmerBalances(){
     (state.dispatches[k]||[]).forEach(function(d){
       if(!d.farmerId) return;
       if(!map[d.farmerId]) map[d.farmerId] = { farmerId:d.farmerId, dispatched:0, returned:0, lastDispatch:"" };
-      map[d.farmerId].dispatched += (+d.trays||0);
+      map[d.farmerId].dispatched += traysDelivered(d);
       if(k > map[d.farmerId].lastDispatch) map[d.farmerId].lastDispatch = k;
     });
   }
@@ -3433,9 +3743,10 @@ function saveFarmer(){
   if(storageMode === "firebase"){
     if(editingFarmerId){
       // Actualizar en Firebase
-      FBApi.updateDocument("agricultores", editingFarmerId, rec).then(function(){
+      var fid = editingFarmerId;
+      FBApi.updateDocument("agricultores", fid, rec).then(function(){
         // Actualiza en memoria también
-        Object.assign(farmerById(editingFarmerId), rec);
+        var ff = farmerById(fid); if(ff) Object.assign(ff, rec);
         editingFarmerId = null;
         renderFarmers();
         renderFarmerForm();
@@ -3480,7 +3791,10 @@ function useGps(){
 }
 
 /* ============================ Config ============================ */
-function openConfig(){document.getElementById("ovCfg").classList.add("show"); renderConfig();}
+function openConfig(){
+  if(!isAdmin()){ alert("Solo el administrador puede cambiar la configuración de camiones."); return; }
+  document.getElementById("ovCfg").classList.add("show"); renderConfig();
+}
 
 function renderConfig(){
   var c = state.config;
@@ -3501,7 +3815,19 @@ function renderConfig(){
       + '<div class="row2"><div><label class="fl">'+L("cLoad")+'</label><input id="ct_l'+i+'" type="number" value="'+t.loadMin+'"></div>'
       + '<div><label class="fl">'+L("cUnload")+'</label><input id="ct_u'+i+'" type="number" value="'+t.unloadMin+'"></div></div></div>';
   });
-  html += '</div><div class="hint">'+L("cNote")+'</div>'
+  var wds = (state.calendar && state.calendar.weekdays) || [];
+  html += '</div><div class="sec"><h4>Días sin despacho</h4>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap">'
+    + [[1,"Lun"],[2,"Mar"],[3,"Mié"],[4,"Jue"],[5,"Vie"],[6,"Sáb"],[0,"Dom"]].map(function(w){
+        return '<label style="display:flex;gap:5px;align-items:center;font-size:14px"><input type="checkbox" class="cf_wd" value="'+w[0]+'"'
+          + (wds.indexOf(w[0])>=0?' checked':'') + '> '+w[1]+'</label>';
+      }).join("")
+    + '</div><div class="hint">Los días marcados quedan bloqueados todas las semanas. Para un feriado puntual usa "🚫 Bloquear día" en el calendario.</div>'
+    + '<label class="fl">Máximo de bandejas por día (todos los camiones)</label>'
+    + '<input id="cf_maxday" type="number" min="1" step="10" value="'+dayLimit()+'">'
+    + '<label class="fl">Tiempo de viaje (ida) para agricultores sin ubicación, en minutos</label>'
+    + '<input id="cf_deftravel" type="number" min="10" step="5" value="'+defaultTravelMin()+'"></div>'
+    + '<div class="hint">'+L("cNote")+'</div>'
     + '<button class="btn primary" style="width:100%;margin-top:14px" onclick="saveConfig()">'+L("cSave")+'</button>';
   document.getElementById("cfgBody").innerHTML = html;
 }
@@ -3530,6 +3856,16 @@ function saveConfig(){
     t.loadMin = +document.getElementById("ct_l"+i).value || 0;
     t.unloadMin = +document.getElementById("ct_u"+i).value || 0;
   });
+  c.defaultTravelMin = +document.getElementById("cf_deftravel").value || 60;
+  c.maxTraysPerDay = +document.getElementById("cf_maxday").value || 800;
+  state.calendar = state.calendar || {blocked:{}, weekdays:[]};
+  state.calendar.weekdays = Array.prototype.map.call(document.querySelectorAll(".cf_wd:checked"), function(x){ return +x.value; });
+  if(storageMode === "firebase" && FBApi.isAvailable()){
+    // Se guarda en Firebase para que todos usen la misma configuración de camiones
+    FBApi.setDocument("config", "app", {config: JSON.parse(JSON.stringify(c)), updatedAt: new Date().toISOString(), updatedBy: currentUser || ""})
+      .catch(function(e){ alert("❌ No se pudo guardar la configuración: " + e.message); });
+  }
+  saveCalendar();
   saveState();
   closeOv("ovCfg");
   renderAll();
@@ -3813,7 +4149,7 @@ function shareReportMobile(pending, mail){
   }).then(function(){
     setTimeout(function(){
       if(confirm("¿Enviaste el informe?\n\nSi ya lo enviaste, presiona Aceptar para marcarlo como enviado.")){
-        markPendingSent();
+        markPendingSent(true);
       }
     }, 900);
 
@@ -3997,10 +4333,10 @@ function openOutlook(){
   }, delay);
 }
 
-function markPendingSent(){
+function markPendingSent(skipConfirm){
   var pending = getCurrentUserDispatches().filter(function(d){return d.status!=="sent";});
   if(!pending.length){alert(L("noPendingMail")); return;}
-  if(!confirm(fmtL("confirmMarkSent",{N:pending.length}))) return;
+  if(skipConfirm !== true && !confirm(fmtL("confirmMarkSent",{N:pending.length}))) return;
   var pendingIds = {};
   pending.forEach(function(d){pendingIds[d.id]=1;});
   var stamp = new Date().toISOString();
@@ -4008,6 +4344,18 @@ function markPendingSent(){
     state.dispatches[k].forEach(function(d){
       if(pendingIds[d.id]){d.status="sent"; d.sentAt=stamp;}
     });
+  }
+  // En Firebase se guarda el estado en cada despacho (antes solo quedaba en el equipo)
+  if(storageMode === "firebase" && FBApi.isAvailable()){
+    Promise.all(Object.keys(pendingIds).map(function(id){
+      return FBApi.updateDocument("despachos", id, {status: "sent", sentAt: stamp});
+    })).then(function(){
+      renderAll();
+      alert(L("markedOk"));
+    }).catch(function(e){
+      alert("❌ No se pudieron marcar todos como enviados: " + e.message);
+    });
+    return;
   }
   saveState();
   renderAll();
@@ -4313,10 +4661,115 @@ function csvEscape(value){
    El admin elige exactamente qué borrar, con filtros por fecha.
    ═══════════════════════════════════════════════════════════════════ */
 
+/* ===================== RESPALDOS (para poder deshacer) =====================
+   Guarda una copia de despachos y devoluciones en Firestore:
+   respaldos/{id} (resumen) + respaldosPartes/{id}_{n} (datos en trozos < 1 MB).
+   - Automático una vez al día al entrar logística.
+   - Siempre antes de "Limpiar datos". */
+function _allDispatchesFlat(){
+  var out = [];
+  Object.keys(state.dispatches||{}).forEach(function(k){
+    (state.dispatches[k]||[]).forEach(function(d){ out.push(Object.assign({}, d, {date: d.date || k})); });
+  });
+  return out;
+}
+function makeBackup(motivo){
+  if(storageMode !== "firebase" || !FBApi.isAvailable()) return Promise.resolve(null);
+  var now = new Date();
+  var id = iso(now) + "_" + String(now.getHours()).padStart(2,"0") + String(now.getMinutes()).padStart(2,"0")
+    + String(now.getSeconds()).padStart(2,"0") + "_" + (motivo === "diario" ? "diario" : "limpieza");
+  var payload = JSON.stringify({despachos: _allDispatchesFlat(), devoluciones: state.returns || []});
+  var CH = 700000, parts = [];
+  for(var i = 0; i < payload.length; i += CH) parts.push(payload.slice(i, i + CH));
+  var jobs = parts.map(function(txt, n){
+    return FBApi.setDocument("respaldosPartes", id + "_" + n, {backupId: id, n: n, data: txt});
+  });
+  return Promise.all(jobs).then(function(){
+    return FBApi.setDocument("respaldos", id, {
+      fecha: iso(now), creado: now.toISOString(), motivo: motivo, por: currentUser || "",
+      partes: parts.length, despachos: _allDispatchesFlat().length, devoluciones: (state.returns||[]).length
+    });
+  }).then(function(){ return id; });
+}
+/* Respaldo diario automático (solo la cuenta de logística, 1 escritura al día) */
+function maybeDailyBackup(){
+  if(!isAdmin() || storageMode !== "firebase" || !FBApi.isAvailable()) return;
+  var key = "sps_ultimo_respaldo", hoy = todayStr();
+  try{ if(localStorage.getItem(key) === hoy) return; }catch(e){}
+  setTimeout(function(){
+    if(!_allDispatchesFlat().length && !(state.returns||[]).length) return;   // nada que respaldar
+    makeBackup("diario").then(function(id){
+      try{ localStorage.setItem(key, hoy); }catch(e){}
+      console.log("[Respaldo] Diario guardado:", id);
+    }).catch(function(e){ console.warn("[Respaldo] No se pudo guardar:", e.message); });
+  }, 8000);
+}
+function listBackups(){
+  var col = window.FB.collection(window.FB.db, "respaldos");
+  return window.FB.getDocs(col).then(function(snap){
+    var out = [];
+    snap.forEach(function(d){ out.push(Object.assign({id: d.id}, d.data())); });
+    return out.sort(function(a,b){ return a.creado < b.creado ? 1 : -1; });
+  });
+}
+/* Restaura: vuelve a crear los despachos y devoluciones del respaldo que YA NO existen.
+   No toca ni duplica los que siguen en la app. */
+function restoreBackup(id){
+  if(!isAdmin()) return;
+  var b = (window._backupsCache || []).filter(function(x){ return x.id === id; })[0];
+  if(!b) return;
+  if(!confirm("Restaurar el respaldo del " + b.fecha + " (" + b.motivo + ")\n\n"
+    + "Se volverán a crear los despachos y devoluciones de ese respaldo que ya no estén en la app.\n"
+    + "Los que existen hoy no se modifican.\n\n¿Continuar?")) return;
+  var jobs = [];
+  for(var n = 0; n < (b.partes||1); n++){
+    jobs.push(window.FB.getDoc(window.FB.doc(window.FB.db, "respaldosPartes", id + "_" + n)).then(function(sn){ return sn.exists() ? sn.data() : null; }));
+  }
+  Promise.all(jobs).then(function(parts){
+    if(parts.some(function(x){ return !x; })) throw new Error("El respaldo está incompleto.");
+    parts.sort(function(a,b){ return a.n - b.n; });
+    var data = JSON.parse(parts.map(function(x){ return x.data; }).join(""));
+    var existentes = {};
+    _allDispatchesFlat().forEach(function(d){ existentes[d.id] = 1; });
+    var retEx = {}; (state.returns||[]).forEach(function(r){ retEx[r.id] = 1; });
+    var w = [], nd = 0, nr = 0;
+    (data.despachos||[]).forEach(function(d){
+      if(!d.id || existentes[d.id]) return;
+      var doc = Object.assign({}, d); delete doc.id; delete doc._id;
+      w.push(FBApi.setDocument("despachos", d.id, doc)); nd++;
+    });
+    (data.devoluciones||[]).forEach(function(r){
+      if(!r.id || retEx[r.id]) return;
+      var doc = Object.assign({}, r); delete doc.id; delete doc._id;
+      w.push(FBApi.setDocument("devoluciones", r.id, doc)); nr++;
+    });
+    return Promise.all(w).then(function(){
+      alert("✅ Respaldo restaurado\n\n  " + nd + " despachos recuperados\n  " + nr + " devoluciones recuperadas");
+      closeOv("ovCleanup");
+    });
+  }).catch(function(e){ alert("❌ No se pudo restaurar: " + e.message); });
+}
+function renderBackupsBox(){
+  var box = document.getElementById("backupsBox");
+  if(!box) return;
+  if(storageMode !== "firebase"){ box.innerHTML = ""; return; }
+  box.innerHTML = '<div style="color:var(--muted);font-size:13px">Cargando respaldos…</div>';
+  listBackups().then(function(list){
+    window._backupsCache = list;
+    if(!list.length){ box.innerHTML = '<div style="font-size:13px;color:var(--muted)">Aún no hay respaldos. Se crea uno automático cada día al entrar con la cuenta de logística.</div>'; return; }
+    box.innerHTML = list.slice(0, 15).map(function(b){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px">'
+        + '<span><strong>' + esc(b.fecha) + '</strong> · ' + esc(b.motivo) + ' · ' + fmtNum(b.despachos||0) + ' despachos, ' + fmtNum(b.devoluciones||0) + ' devoluciones</span>'
+        + '<button class="btn ghost sm" onclick="restoreBackup(\'' + esc(b.id) + '\')">Restaurar</button></div>';
+    }).join("");
+  }).catch(function(e){ box.innerHTML = '<div style="font-size:13px;color:var(--danger)">No se pudieron cargar los respaldos: ' + esc(e.message) + '</div>'; });
+}
+
 function promptReset(){
   if(!isAdmin()){alert("Solo un administrador puede limpiar datos."); return;}
   document.getElementById("ovCleanup").classList.add("show");
   renderCleanupPanel();
+  renderBackupsBox();
 }
 
 /* Cuenta despachos anteriores a una fecha (o todos si no se da fecha) */
@@ -4365,6 +4818,9 @@ function renderCleanupPanel(){
   var nTemp = Object.keys(state.archivedSeasons||{}).length;
 
   var html = ''
+    + '<div style="border:1px solid #bfe3cc;background:#effaf3;border-radius:10px;padding:12px 14px;margin-bottom:14px">'
+    + '<div style="font-weight:700;color:#1f5c3b;margin-bottom:6px">🛟 Respaldos (para deshacer)</div>'
+    + '<div id="backupsBox"></div></div>'
     + '<p style="font-size:13px;color:var(--muted);margin-bottom:16px">'
     + 'Marca solo lo que quieras eliminar. Lo que no marques queda intacto. '
     + 'Los <strong>' + state.farmers.length + ' agricultores</strong> y la configuración de camiones nunca se borran desde aquí.'
@@ -4493,7 +4949,7 @@ function getCleanupPlan(){
     for(var k in state.dispatches){
       if(before && k >= before) continue;
       (state.dispatches[k]||[]).forEach(function(d){
-        plan.dispatches.push({id: d.id, date: k});
+        plan.dispatches.push({id: d.id, date: k, token: d.driverToken || ""});
       });
     }
   }
@@ -4588,6 +5044,23 @@ async function executeCleanup(){
   if(plan.seasons) resumen.push("  • Historial de temporadas");
 
   if(!confirm("Se eliminarán definitivamente:\n\n" + resumen.join("\n") + "\n\n¿Confirmar?")) return;
+  // Despachos de hoy o futuros: doble confirmación escribiendo BORRAR
+  var hoyC = todayStr();
+  var futuros = plan.dispatches.filter(function(x){ return (x.date||"") >= hoyC; }).length;
+  if(futuros){
+    var t = prompt("⚠ " + futuros + " de esos despachos son de HOY o días FUTUROS (pedidos que aún no se despachan).\n\n"
+      + "Para confirmar, escribe BORRAR:");
+    if(String(t||"").trim().toUpperCase() !== "BORRAR"){ alert("Limpieza cancelada. No se borró nada."); return; }
+  }
+  // Respaldo obligatorio antes de borrar
+  if(storageMode === "firebase" && (plan.dispatches.length || plan.returns.length)){
+    try{
+      await makeBackup("antes de limpieza");
+    }catch(e){
+      alert("❌ No se pudo crear el respaldo previo (" + e.message + "). Por seguridad no se borró nada.");
+      return;
+    }
+  }
 
   var loading = document.createElement("div");
   loading.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:600;z-index:99999;text-align:center;padding:20px";
@@ -4601,6 +5074,9 @@ async function executeCleanup(){
       if(plan.dispatches.length){
         var dIds = plan.dispatches.map(function(x){return x.id;}).filter(Boolean);
         if(dIds.length){
+          // También las confirmaciones y fotos del chofer de esos despachos
+          var toks = plan.dispatches.map(function(x){return x.token;}).filter(Boolean);
+          if(toks.length) promises.push(deleteDriverData(toks));
           promises.push(typeof FBApi.bulkDelete === "function"
             ? FBApi.bulkDelete("despachos", dIds)
             : Promise.all(dIds.map(function(id){
@@ -5097,7 +5573,9 @@ function processGreenhouseWorkbook(wb, filename){
   if(!ws){alert("El archivo no contiene hojas."); return;}
 
   // Actualiza el nombre de la temporada al nombre de la hoja
-  var seasonName = ws.name || state.season;
+  // La temporada se toma del nombre del archivo (ej: ..._SUM2627_...); si no trae, de la hoja
+  var mSeason = String(filename || "").toUpperCase().match(/(WIN|SUM)\d{4}/);
+  var seasonName = mSeason ? mSeason[0] : (ws.name || state.season);
   if(seasonName !== state.season){
     if(confirm("El reporte corresponde a la temporada \"" + seasonName + "\".\n\n"
       + "Actualmente la temporada activa es \"" + state.season + "\".\n\n"
@@ -5198,6 +5676,7 @@ function processGreenhouseWorkbook(wb, filename){
     var target;
     if(existing){
       existing.fm = fm.toUpperCase();
+      existing.season = state.season;   // queda en la temporada activa (evita que la limpieza la borre)
       existing.especie = g.especie;
       if(cliente) existing.cliente = cliente;
       if(variedad) existing.variedad = variedad;
@@ -5319,7 +5798,7 @@ function processGreenhouseWorkbook(wb, filename){
     // Subir nuevas (sin el _id local, Firebase asigna el suyo)
     var newPromises = newProductions.map(function(p){
       var toSave = Object.assign({}, p);
-      delete toSave.id;   // Firestore genera su propio ID
+      delete toSave.id; delete toSave._id;   // Firestore genera su propio ID
       return FBApi.addDocument("producciones", toSave).then(function(docId){
         p.id = docId;     // actualiza el ID local con el de Firebase
         fbSuccess++;
@@ -5334,7 +5813,7 @@ function processGreenhouseWorkbook(wb, filename){
     var updPromises = updatedProductions.map(function(p){
       var toSave = Object.assign({}, p);
       var pid = p.id;
-      delete toSave.id;
+      delete toSave.id; delete toSave._id;
       return FBApi.updateDocument("producciones", pid, toSave).then(function(){
         fbSuccess++;
       }).catch(function(e){
@@ -5796,7 +6275,7 @@ function editProduction(id){
   // Sincroniza a Firebase (con upsert: si no existe, la crea)
   if(storageMode === "firebase" && typeof FBApi !== "undefined" && FBApi.isAvailable()){
     var toSave = Object.assign({}, p);
-    delete toSave.id;
+    delete toSave.id; delete toSave._id;
     FBApi.updateDocument("producciones", p.id, toSave).then(function(){
       console.log("[FB] Producción " + p.spsCode + " actualizada ✓");
     }).catch(function(err){
@@ -6060,6 +6539,7 @@ function receivesAlerts(){
   var mail = (corporateEmail(currentUser) || "").toLowerCase();
   return (APP_CONFIG.alertEmails || []).some(function(e){ return e.toLowerCase() === mail; });
 }
+var _alertSince = "";
 var _notifReady = false;      // evita avisar al cargar la app por primera vez
 var _knownDispatchIds = {};   // ids ya vistos en esta sesión
 var notifState = { lastSeen: "", muted: false, pending: [] };
@@ -6086,13 +6566,15 @@ function saveNotifState(){
 }
 
 /* Revisa la lista de despachos y avisa si hay nuevos de OTROS usuarios */
-function checkNewDispatchAlerts(allDispatches){
+function checkNewDispatchAlerts(allDispatches, fromCache){
   if(!currentUser || !receivesAlerts()) return;
 
-  // Primera carga: solo registrar lo que ya existe, sin avisar
+  // Primera carga: solo registrar lo que ya existe, sin avisar.
+  // Si la primera respuesta viene de la caché del equipo, se espera la del servidor.
   if(!_notifReady){
     allDispatches.forEach(function(d){ if(d.id) _knownDispatchIds[d.id] = true; });
     _notifReady = true;
+    _alertSince = new Date(Date.now() - 2*60*1000).toISOString();
     recomputePendingAlerts(allDispatches);
     renderNotifBadge();
     return;
@@ -6101,6 +6583,9 @@ function checkNewDispatchAlerts(allDispatches){
   var nuevos = allDispatches.filter(function(d){
     if(!d.id || _knownDispatchIds[d.id]) return false;
     _knownDispatchIds[d.id] = true;
+    // Los que llegaron solo porque la caché del equipo estaba atrasada no suenan
+    // (igual quedan en la campanita); suenan los creados durante esta sesión.
+    if(d.createdAt && _alertSince && d.createdAt < _alertSince) return false;
     // No avisar de mis propios despachos
     if(normalizeUser(d.user) === normalizeUser(currentUser)) return false;
     return true;
@@ -6186,21 +6671,30 @@ function showSystemNotification(nuevos){
         + (d.date ? " · " + String(d.date).split("-").reverse().join("-") : "")
     : "Revisa el calendario para ver el detalle";
 
-  try{
-    var notif = new Notification(titulo, {
-      body: cuerpo,
-      icon: "icon-192.png",
-      badge: "icon-192.png",
-      tag: "sps-despacho",
-      renotify: true,
-      requireInteraction: false
-    });
-    notif.onclick = function(){
-      window.focus();
-      openNotifPanel();
-      notif.close();
-    };
-  }catch(e){ console.warn("[Alerta] Notificación falló:", e.message); }
+  sysNotify(titulo, {body: cuerpo, tag: "sps-despacho", renotify: true}, function(){ openNotifPanel(); });
+}
+
+if(navigator.serviceWorker && navigator.serviceWorker.addEventListener){
+  navigator.serviceWorker.addEventListener("message", function(ev){
+    if(ev.data && ev.data.open === "notif" && currentUser && typeof openNotifPanel === "function") openNotifPanel();
+  });
+}
+/* Notificación del sistema que funciona también en Android (vía service worker) */
+function sysNotify(titulo, opts, onClick){
+  if(!("Notification" in window) || Notification.permission !== "granted") return;
+  opts = Object.assign({icon: "icon-192.png", badge: "icon-192.png"}, opts || {});
+  function direct(){
+    try{
+      var n = new Notification(titulo, opts);
+      n.onclick = function(){ window.focus(); if(onClick) onClick(); n.close(); };
+    }catch(e){ console.warn("[Alerta] Notificación falló:", e.message); }
+  }
+  if(navigator.serviceWorker && navigator.serviceWorker.getRegistration){
+    navigator.serviceWorker.getRegistration().then(function(reg){
+      if(reg && reg.showNotification) return reg.showNotification(titulo, Object.assign({data: {open: onClick ? "notif" : ""}}, opts));
+      direct();
+    }).catch(direct);
+  } else direct();
 }
 
 /* Contador en el ícono de la app (como WhatsApp) */
@@ -6297,13 +6791,13 @@ function openNotifPanel(){
       var fecha = String(d.date||"").split("-").reverse().join("-");
       var cuando = d.createdAt ? new Date(d.createdAt).toLocaleString("es-CL", {day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"}) : "";
       html += '<div style="border:1px solid var(--line);border-left:3px solid var(--navy);border-radius:8px;'
-        + 'padding:11px 13px;margin-bottom:8px;cursor:pointer" onclick="goToDispatch(\'' + d.date + '\')">'
+        + 'padding:11px 13px;margin-bottom:8px;cursor:pointer" onclick="goToDispatch(\'' + String(d.date||"").replace(/[^0-9-]/g,"") + '\')">'
         + '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">'
         + '<strong style="color:var(--navy)">' + esc(f ? f.name : (d.farmerName||"—")) + '</strong>'
         + '<span style="background:var(--blue-soft);color:var(--navy);font-weight:800;font-size:12.5px;padding:2px 9px;border-radius:6px">'
         + fmtNum(d.trays||0) + ' bandejas</span></div>'
         + '<div style="font-size:12.5px;color:var(--muted);margin-top:5px">'
-        + 'Despacho: <strong>' + fecha + '</strong>'
+        + 'Despacho: <strong>' + esc(fecha) + '</strong>'
         + ' · Solicitó: <strong>' + esc(d.user||"—") + '</strong>'
         + (d.spsCode ? ' · SPS ' + esc(d.spsCode) : '')
         + '</div>'
@@ -6354,10 +6848,7 @@ function requestNotifPermission(){
   }
   Notification.requestPermission().then(function(perm){
     if(perm === "granted"){
-      new Notification("Notificaciones activadas ✓", {
-        body: "Te avisaremos cuando alguien agende un despacho.",
-        icon: "icon-192.png"
-      });
+      sysNotify("Notificaciones activadas ✓", {body: "Te avisaremos cuando alguien agende un despacho."});
       openNotifPanel();  // refrescar el panel
     } else {
       alert("No se activaron las notificaciones.\n\n"
