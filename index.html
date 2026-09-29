@@ -239,6 +239,10 @@
   .verpill{display:inline-block;vertical-align:middle;font-size:11px;font-weight:800;background:#2e7d52;color:#fff;border-radius:999px;padding:2px 8px;margin-left:6px;letter-spacing:.02em}
   #newVerBar{position:fixed;left:0;right:0;top:0;z-index:100000;background:#b06a00;color:#fff;text-align:center;padding:10px 14px;font-weight:700;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.2)}
   #newVerBar button{margin-left:10px;border:0;border-radius:8px;padding:6px 12px;font-weight:800;color:#b06a00;background:#fff;cursor:pointer}
+  .alvchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .alvchip{font-size:12px;background:#eef3f8;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--ink)}
+  .alvchip.pend{background:#fff4e2;border-color:#f0d9ab;color:#7a4a00}
+  .alvchip small{color:var(--muted)}
   .findone{margin-top:10px;border:1px solid #cfe8d9;background:#f3fbf6;border-radius:10px;padding:8px 12px}
   .findone summary{cursor:pointer;font-weight:700;color:#1f5c3b;font-size:13.5px}
   .hrow{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:9px 2px;border-bottom:1px solid var(--line);font-size:13px}
@@ -2221,7 +2225,7 @@ function buildDriverMessage(ds, d){
   if(maps) L1.push("🧭 " + maps);
   if(f.phone) L1.push("📞 " + f.phone);
   L1.push("");
-  L1.push("📦 *" + fmtNum(d.trays) + " bandejas*" + (d.plants ? " · " + fmtNum(d.plants) + " plantas" : ""));
+  L1.push("📦 *" + fmtNum(d.trays) + " bandejas*" + (dispAlveolos(d) ? " de " + dispAlveolos(d) + " alvéolos" : "") + (d.plants ? " · " + fmtNum(d.plants) + " plantas" : ""));
   if(trucks) L1.push("🚛 Camión: " + trucks);
   if(d.contractNumber || d.spsCode) L1.push("🌱 Contrato " + (d.contractNumber||"—") + " · SPS " + (d.spsCode||"—"));
   if(d.responsible) L1.push("👤 Responsable: " + d.responsible);
@@ -2239,9 +2243,9 @@ function buildDriverMessage(ds, d){
 /* ============================ VERSIÓN ============================
    Cambiar APP_VERSION en cada entrega. La app revisa cada 5 minutos si hay
    una versión publicada más nueva y muestra un aviso para recargar. */
-var APP_VERSION = "2.6";
-var APP_VERSION_DATE = "28-09-2026 19:40";
-var APP_VERSION_NOTES = "Historial · mismo camión por agricultor · camioneta y vehículos editables";
+var APP_VERSION = "2.8";
+var APP_VERSION_DATE = "29-09-2026 20:45";
+var APP_VERSION_NOTES = "Recuperación de bandejas por tipo de alvéolo · cultivos compartidos separados · cubicación";
 function showVersion(){
   var v = document.getElementById("appVersion");
   if(v) v.textContent = "v" + APP_VERSION;
@@ -2444,6 +2448,7 @@ function driverResumen(ds, d){
     telefono: f.phone || "",
     maps: mapsHref(f) || "",
     bandejas: +d.trays || 0,
+    alveolos: dispAlveolos(d) || 0,
     camion: trucks,
     contrato: d.contractNumber || "",
     sps: d.spsCode || "",
@@ -2663,6 +2668,7 @@ function renderDay(ds){
         + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+statusTag(d.status)+'<div class="dtrays">'+fmtNum(d.trays)+' bandejas</div></div></div>'
         + '<div class="d2">'+(isAdmin() && !d.finalizado ? vehicleQuickSelect(ds, d) : truckTag(d.truckIds))
         + (d.plants?'<span><strong>'+fmtNum(d.plants)+'</strong> plantas</span>':'')
+        + (dispAlveolos(d)?'<span>🧊 '+dispAlveolos(d)+' alv.</span>':'')
         + (germPct?'<span>Germ: <strong>'+germPct+'</strong></span>':'')
         + (d.superficieHa?'<span>'+d.superficieHa+' HA</span>':'')
         + (d.fieldman?'<span>Fieldman: '+esc(d.fieldman)+'</span>':'')
@@ -2854,6 +2860,7 @@ function fillProductionSelect(){
       var s = getProductionSnapshot(p);
       var icon = s.status === "red" ? "🔴" : (s.status === "yellow" ? "🟡" : "🟢");
       var label = icon + " " + p.spsCode + " · Contrato " + p.contrato + " · " + p.especie
+        + (p.alveolos ? " · " + p.alveolos + " alv." : "")
         + " · " + s.stockBandejas + " bandejas disp.";
       h += '<option value="'+p.id+'">' + esc(label) + '</option>';
     });
@@ -2902,7 +2909,9 @@ function onProductionSelected(){
     + '📊 Stock disponible: <strong>' + fmtNum(s.stockBandejas) + '</strong> de ' + fmtNum(p.bandejasSembradas) + ' bandejas ('
     + (100 - s.porcentajeUso) + '% restante)'
     + (s.diasRetraso > 0 ? ' · ⚠ ' + s.diasRetraso + ' días de retraso' : '')
+    + (p.alveolos ? '<br>🧊 Bandeja de <strong>' + p.alveolos + ' alvéolos</strong>' : '')
     + (ppbReal > 0 ? '<br>🌱 ' + fmtNum(Math.round(ppbReal)) + ' plantas por bandeja (' + fmtNum(s.plantasTotales) + ' plantas totales)' : '')
+    + (p.germPendiente ? '<br>⏳ Germinación pendiente de medir en el invernadero' : '')
     + '</div>';
   var plantsEl = document.getElementById("f_plants");
   if(plantsEl) plantsEl.dataset.manual = "";
@@ -3069,6 +3078,7 @@ function addDispatch(){
 
   var fields = {
     productionId: productionId || "",
+    alveolos: (productionId && getProductionById(productionId) && +getProductionById(productionId).alveolos) || 0,
     farmerId: gid,
     farmerName: f.name,
     phone: f.phone||"",
@@ -3421,6 +3431,18 @@ function farmerBalance(farmerId){
   return { dispatched: dispatched, returned: returned, balance: dispatched - returned };
 }
 
+/* Saldo por tipo de bandeja (alvéolos). "0" = despachos antiguos sin dato de alvéolos */
+function alvBreakdown(A){
+  return Object.keys(A||{}).map(function(k){
+    return {alveolos: +k, dispatched: A[k].dispatched, returned: A[k].returned, balance: A[k].dispatched - A[k].returned};
+  }).filter(function(x){ return x.dispatched || x.returned; })
+    .sort(function(a,b){ return (b.alveolos||0) - (a.alveolos||0); });
+}
+function alvLabel(n){ return +n ? n + " alv." : "sin tipo"; }
+function alvText(list){
+  return (list||[]).filter(function(x){ return x.balance !== 0; })
+    .map(function(x){ return alvLabel(x.alveolos) + ": " + fmtNum(x.balance); }).join(" · ");
+}
 function allFarmerBalances(){
   var today = todayStr();
   var map = {};
@@ -3428,15 +3450,21 @@ function allFarmerBalances(){
     if(k > today) continue;
     (state.dispatches[k]||[]).forEach(function(d){
       if(!d.farmerId) return;
-      if(!map[d.farmerId]) map[d.farmerId] = { farmerId:d.farmerId, dispatched:0, returned:0, lastDispatch:"" };
+      if(!map[d.farmerId]) map[d.farmerId] = { farmerId:d.farmerId, dispatched:0, returned:0, lastDispatch:"", alv:{} };
       map[d.farmerId].dispatched += traysDelivered(d);
+      var ka = String(dispAlveolos(d) || 0);
+      var A = map[d.farmerId].alv; if(!A[ka]) A[ka] = {dispatched:0, returned:0};
+      A[ka].dispatched += traysDelivered(d);
       if(k > map[d.farmerId].lastDispatch) map[d.farmerId].lastDispatch = k;
     });
   }
   (state.returns||[]).forEach(function(r){
     if(!r.farmerId) return;
-    if(!map[r.farmerId]) map[r.farmerId] = { farmerId:r.farmerId, dispatched:0, returned:0, lastDispatch:"" };
+    if(!map[r.farmerId]) map[r.farmerId] = { farmerId:r.farmerId, dispatched:0, returned:0, lastDispatch:"", alv:{} };
     map[r.farmerId].returned += (+r.quantity||0);
+    var kr = String(+r.alveolos || 0);
+    var B = map[r.farmerId].alv; if(!B[kr]) B[kr] = {dispatched:0, returned:0};
+    B[kr].returned += (+r.quantity||0);
   });
   return Object.keys(map).map(function(id){
     var f = farmerById(id);
@@ -3447,7 +3475,8 @@ function allFarmerBalances(){
       dispatched: map[id].dispatched,
       returned: map[id].returned,
       balance: map[id].dispatched - map[id].returned,
-      lastDispatch: map[id].lastDispatch
+      lastDispatch: map[id].lastDispatch,
+      alv: alvBreakdown(map[id].alv)
     };
   });
 }
@@ -3488,6 +3517,13 @@ function renderReturnsPanel(){
     + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Total devuelto</div></div>'
     + '</div>';
 
+  var porAlv = {};
+  balances.forEach(function(b){ (b.alv||[]).forEach(function(x){ if(x.balance > 0){ porAlv[x.alveolos] = (porAlv[x.alveolos]||0) + x.balance; } }); });
+  var alvKeys = Object.keys(porAlv).sort(function(a,b){ return b - a; });
+  if(alvKeys.length && alvKeys.some(function(k){ return +k; })){
+    html += '<div class="alvchips" style="margin-bottom:10px"><span style="font-size:12px;color:var(--muted);align-self:center">Pendientes por tipo:</span>'
+      + alvKeys.map(function(k){ return '<span class="alvchip pend">🧊 ' + alvLabel(+k) + ': <strong>' + fmtNum(porAlv[k]) + '</strong></span>'; }).join("") + '</div>';
+  }
   html += '<div style="font-size:12.5px;color:var(--muted);margin-bottom:10px"><strong>'
     + withDebt + '</strong> agricultores con bandejas pendientes de devolver</div>';
 
@@ -3521,6 +3557,11 @@ function renderReturnsPanel(){
         + '<div style="background:' + bgColor + ';color:' + color + ';padding:4px 12px;border-radius:8px;font-weight:800;font-size:14px;border:1px solid ' + borderColor + '">'
         + fmtNum(b.balance) + (isPending ? " pendientes" : " ✓ al día")
         + '</div></div>'
+        + ((b.alv||[]).some(function(x){ return x.alveolos; }) ? '<div class="alvchips">' + b.alv.map(function(x){
+            var pend = x.balance > 0;
+            return '<span class="alvchip' + (pend ? ' pend' : '') + '">🧊 ' + alvLabel(x.alveolos) + ': <strong>' + fmtNum(x.balance) + '</strong>'
+              + ' <small>(' + fmtNum(x.dispatched) + ' desp. / ' + fmtNum(x.returned) + ' dev.)</small></span>';
+          }).join("") + '</div>' : '')
         + '<div class="d2">'
         + '<span>📤 Despachado: <strong>' + fmtNum(b.dispatched) + '</strong></span>'
         + '<span>📥 Devuelto: <strong>' + fmtNum(b.returned) + '</strong></span>'
@@ -3544,7 +3585,7 @@ function renderReturnsPanel(){
       var dateFmt = r.date ? r.date.split("-").reverse().join("-") : "—";
       html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fcfdff;gap:8px;flex-wrap:wrap">'
         + '<div style="flex:1;min-width:200px"><strong>' + esc(name) + '</strong>'
-        + '<div style="font-size:11.5px;color:var(--muted)">' + dateFmt + ' · ' + esc(r.user||"—")
+        + '<div style="font-size:11.5px;color:var(--muted)">' + dateFmt + (+r.alveolos ? ' · 🧊 ' + r.alveolos + ' alv.' : '') + ' · ' + esc(r.user||"—")
         + (r.notes ? ' · ' + esc(r.notes) : '') + '</div></div>'
         + '<div style="font-weight:800;color:var(--ok)">' + fmtNum(r.quantity) + '</div>'
         + '<button class="btn danger sm" onclick="deleteReturn(\'' + r.id + '\')">Eliminar</button>'
@@ -3574,6 +3615,20 @@ function promptAddReturn(farmerId){
   if(qty > bal.balance){
     if(!confirm("La cantidad (" + qty + ") supera el saldo pendiente (" + bal.balance + ").\n¿Continuar de todos modos?")) return;
   }
+  // Tipo de bandeja devuelta (alvéolos): se cruza con lo despachado a este agricultor
+  var bInfo = allFarmerBalances().filter(function(x){ return x.farmerId === farmerId; })[0];
+  var tipos = ((bInfo && bInfo.alv) || []).filter(function(x){ return x.alveolos; });
+  var alvDev = 0;
+  if(tipos.length === 1){
+    alvDev = tipos[0].alveolos;
+  } else if(tipos.length > 1){
+    var sug = tipos.slice().sort(function(a,b){ return b.balance - a.balance; })[0].alveolos;
+    var aStr = prompt("¿De qué tipo son las bandejas devueltas?\n\n"
+      + tipos.map(function(x){ return "  " + x.alveolos + " alvéolos → pendientes: " + fmtNum(x.balance); }).join("\n")
+      + "\n\nEscribe los alvéolos (" + tipos.map(function(x){ return x.alveolos; }).join(" / ") + "):", sug);
+    if(aStr === null) return;
+    alvDev = parseInt(aStr, 10) || 0;
+  }
   var notes = prompt("Observaciones (opcional):\nEj: 'Se devuelven 5 quebradas', 'entrega parcial', etc.") || "";
 
   var newReturn = {
@@ -3581,6 +3636,7 @@ function promptAddReturn(farmerId){
     farmerId: farmerId,
     date: todayStr(),
     quantity: qty,
+    alveolos: alvDev,
     notes: notes.trim(),
     user: currentUser,
     createdAt: new Date().toISOString()
@@ -3629,7 +3685,7 @@ function deleteReturn(returnId){
 var PENDING_HEADERS = [
   "RAZON SOCIAL","RUT","CONTACTO","FONO","DIRECCION","COMUNA/PROVINCIA","REGION",
   "TOTAL DESPACHADO","TOTAL DEVUELTO","SALDO PENDIENTE",
-  "ULTIMO DESPACHO","DIAS DESDE ULTIMO"
+  "ULTIMO DESPACHO","DIAS DESDE ULTIMO","PENDIENTE POR ALVEOLO"
 ];
 
 function exportPendingReturns(){
@@ -3704,7 +3760,8 @@ function exportPendingReturnsXLSX(balances, filename){
       b.returned,
       b.balance,
       lastDate,
-      daysSince
+      daysSince,
+      alvText(b.alv)
     ]);
   });
 
@@ -3817,7 +3874,7 @@ function exportPendingReturnsCSV(balances, filename){
       f.name || b.name, f.rut || "", f.contacto || "",
       f.phone || b.phone || "", f.address || "", f.comuna || "", f.region || "",
       b.dispatched, b.returned, b.balance,
-      lastFmt, days == null ? "" : days
+      lastFmt, days == null ? "" : days, alvText(b.alv)
     ]);
   });
   var totalDesp = balances.reduce(function(s,b){return s + b.dispatched;}, 0);
@@ -5768,6 +5825,12 @@ function calcPlantasTotales(p){
   return Math.round((+p.bandejasSembradas || 0) * (+p.plantasPorBandeja || 0) * germ);
 }
 
+/* Alvéolos (cubicación) de la bandeja de un despacho: el guardado o el de su producción */
+function dispAlveolos(d){
+  if(+d.alveolos) return +d.alveolos;
+  var p = d.productionId ? getProductionById(d.productionId) : null;
+  return p && +p.alveolos ? +p.alveolos : 0;
+}
 /* Plantas reales (logradas) por bandeja = plantas totales / bandejas sembradas */
 function plantasPorBandejaReal(p){
   var band = +p.bandejasSembradas || 0;
@@ -5946,6 +6009,7 @@ function processGreenhouseWorkbook(wb, filename){
   // La temporada se toma del nombre del archivo (ej: ..._SUM2627_...); si no trae, de la hoja
   var mSeason = String(filename || "").toUpperCase().match(/(WIN|SUM)\d{4}/);
   var seasonName = mSeason ? mSeason[0] : (ws.name || state.season);
+  var prevSeason = state.season;   // la reparación también revisa la temporada anterior
   if(seasonName !== state.season){
     if(confirm("El reporte corresponde a la temporada \"" + seasonName + "\".\n\n"
       + "Actualmente la temporada activa es \"" + state.season + "\".\n\n"
@@ -5996,28 +6060,31 @@ function processGreenhouseWorkbook(wb, filename){
       var mDec = nf.match(/0\.(0+)\s*%/);
       germDec = mDec ? mDec[1].length : (nf.indexOf("%") >= 0 ? 0 : 1);
     }
-    var germ = 0;
+    var germ = 0, germPend = false;
     if(germRaw != null && germRaw !== ""){
       germ = +germRaw;
-      if(isNaN(germ)) germ = 0;
+      if(isNaN(germ)){ germ = 0; germPend = /PEND/i.test(String(germRaw)); }
       if(germ > 1) germ = germ / 100;  // Excel a veces trae 85 en vez de 0.85
     }
+    var alveolos = Math.round(+v("alveolos") || 0);   // cubicación: alvéolos por bandeja
     var diasOpt = +v("diasOpt") || 35;
     var diasMax = +v("diasMax") || 45;
+    if(diasMax < diasOpt) diasMax = diasOpt;   // el máximo nunca antes que el óptimo
     var obs = v("obs") ? String(v("obs")) : "";
 
     var key = productionKey(sps, contrato, fm);
     if(!groups[key]){
       groups[key] = {fm: fm, sps: sps, contrato: contrato, cliente: cliente, variedad: variedad,
         especie: String(v("especie")||"").trim(), fSiembra: fSiembra, bandejas: 0,
-        totales: [], germ: germ, germDec: germDec, diasOpt: diasOpt, diasMax: diasMax, obs: []};
+        totales: [], germ: germ, germDec: germDec, germPend: germPend, alveolos: alveolos, diasOpt: diasOpt, diasMax: diasMax, obs: []};
       groupOrder.push(key);
     }
     var g = groups[key];
     g.bandejas += bandejasSembradas;
     if(plantasTotales > 0) g.totales.push(plantasTotales);
     if(fSiembra && (!g.fSiembra || fSiembra < g.fSiembra)) g.fSiembra = fSiembra;  // siembra más antigua
-    if(germ > 0 && !g.germ){ g.germ = germ; g.germDec = germDec; }
+    if(germ > 0 && !g.germ){ g.germ = germ; g.germDec = germDec; g.germPend = false; }
+    if(alveolos && !g.alveolos) g.alveolos = alveolos;
     if(obs && g.obs.indexOf(obs) < 0) g.obs.push(obs);
   });
 
@@ -6036,9 +6103,9 @@ function processGreenhouseWorkbook(wb, filename){
         : g.totales.reduce(function(a,b){ return a + b; }, 0);
     }
 
-    // Plantas por bandeja (sembradas) derivadas del total del Excel
-    var plantasPorBandeja = 0;
-    if(plantasTotales > 0 && bandejasSembradas > 0 && germ > 0){
+    // Plantas sembradas por bandeja: la cubicación (alvéolos) si viene; si no, se deriva del total
+    var plantasPorBandeja = g.alveolos || 0;
+    if(!plantasPorBandeja && plantasTotales > 0 && bandejasSembradas > 0 && germ > 0){
       plantasPorBandeja = Math.round(plantasTotales / (bandejasSembradas * germ));
     }
 
@@ -6055,6 +6122,8 @@ function processGreenhouseWorkbook(wb, filename){
       if(plantasTotales > 0) existing.plantasTotales = Math.round(plantasTotales);
       if(plantasPorBandeja > 0) existing.plantasPorBandeja = plantasPorBandeja;
       if(germ > 0){ existing.germinacion = germ; existing.germDecimales = g.germDec; }
+      existing.germPendiente = !!g.germPend && !(germ > 0);
+      if(g.alveolos) existing.alveolos = g.alveolos;
       existing.diasOptimos = diasOpt;
       existing.diasMaximos = diasMax;
       if(obs) existing.observaciones = obs;
@@ -6078,6 +6147,8 @@ function processGreenhouseWorkbook(wb, filename){
         plantasPorBandeja: plantasPorBandeja,
         germinacion: germ,
         germDecimales: g.germDec,
+        germPendiente: !!g.germPend && !(germ > 0),
+        alveolos: g.alveolos || 0,
         diasOptimos: diasOpt,
         diasMaximos: diasMax,
         observaciones: obs,
@@ -6100,7 +6171,7 @@ function processGreenhouseWorkbook(wb, filename){
   var brokenProds = [];
   var fmKey = function(f){ return splitFMCodes(String(f||"").toUpperCase()).join("/"); };
   state.productions.forEach(function(p){
-    if(p.season && p.season !== state.season) return;
+    if(p.season && p.season !== state.season && p.season !== prevSeason) return;
     if(rowsByFile.some(function(r){ return r.prod === p; })) return;
     var pSps = String(p.spsCode||"").toUpperCase();
     var pCon = String(p.contrato||"").trim().toUpperCase();
@@ -6119,6 +6190,17 @@ function processGreenhouseWorkbook(wb, filename){
       return false;
     });
     if(!isBroken && clientesEnArchivo[pSps]) isBroken = true;
+    // Caso 3: cultivo compartido ("IPL/CSC") que ahora viene separado por FM
+    var pCodes = splitFMCodes(String(p.fm||"").toUpperCase());
+    if(!isBroken && pCodes.length > 1){
+      var parts = rowsByFile.filter(function(r){
+        var rc = splitFMCodes(r.fm);
+        return rc.length === 1 && pCodes.indexOf(rc[0]) >= 0
+          && String(r.prod.spsCode||"").toUpperCase() === pSps
+          && String(r.prod.contrato||"").trim().toUpperCase() === pCon;
+      }).map(function(r){ return r.prod; });
+      if(parts.length){ brokenProds.push({bad: p, good: parts[0], goods: parts, split: true}); return; }
+    }
     if(isBroken) brokenProds.push({bad: p, good: match});
   });
   var repaired = brokenProds.length;
@@ -6128,18 +6210,30 @@ function processGreenhouseWorkbook(wb, filename){
     state.productions = state.productions.filter(function(p){ return !badIds[p.id]; });
   }
   // Re-enlaza los despachos de las producciones mal leídas a la producción correcta
+  // En un cultivo que se separó por FM, cada despacho va a la parte de su fieldman
+  function goodFor(b, d){
+    if(!b.goods) return b.good;
+    var byUser = b.goods.filter(function(g){
+      var u = state.fmMapping[splitFMCodes(g.fm)[0]];
+      return u && normalizeUser(u) === normalizeUser(d.user);
+    })[0];
+    if(byUser) return byUser;
+    var byFm = b.goods.filter(function(g){ return String(d.fieldman||"").toUpperCase().indexOf(splitFMCodes(g.fm)[0]) >= 0; })[0];
+    return byFm || b.goods[0];
+  }
   function relinkBrokenDispatches(){
     var changed = [];
     brokenProds.forEach(function(b){
-      var goodId = b.good ? b.good.id : "";
       Object.keys(state.dispatches || {}).forEach(function(ds){
         (state.dispatches[ds] || []).forEach(function(d){
           if(d.productionId === b.bad.id){
+            var gp = goodFor(b, d);
+            var goodId = gp ? gp.id : "";
             var upd = {productionId: goodId};
-            if(b.good){
-              if(d.spsCode !== b.good.spsCode) upd.spsCode = b.good.spsCode;
+            if(gp){
+              if(d.spsCode !== gp.spsCode) upd.spsCode = gp.spsCode;
               if(!(+d.plants) && +d.trays > 0){
-                var ppb = plantasPorBandejaReal(b.good);
+                var ppb = plantasPorBandejaReal(gp);
                 if(ppb > 0) upd.plants = Math.round(+d.trays * ppb);
               }
             }
@@ -6260,7 +6354,8 @@ function processGreenhouseWorkbook(wb, filename){
       + "  ✓ " + added + " producciones nuevas\n"
       + "  ↻ " + updated + " actualizadas\n"
       + (skipped > 0 ? "  · " + skipped + " filas ignoradas (vacías)\n" : "")
-      + (repaired > 0 ? "  🔧 " + repaired + " producciones mal leídas en cargas anteriores fueron corregidas\n" : "")
+      + (brokenProds.filter(function(b){return b.split;}).length ? "  ✂️ " + brokenProds.filter(function(b){return b.split;}).length + " cultivos compartidos ahora separados por fieldman (sus despachos pasaron a la parte de cada uno)\n" : "")
+      + (brokenProds.filter(function(b){return !b.split;}).length ? "  🔧 " + brokenProds.filter(function(b){return !b.split;}).length + " producciones mal leídas en cargas anteriores fueron corregidas\n" : "")
       + "  📅 Temporada: " + state.season
       + syncStatus;
 
@@ -6315,6 +6410,7 @@ function detectGreenhouseHeader(ws){
       else if(h.indexOf("CONTRATO") >= 0) set("contrato");
       else if(h.indexOf("SIEMBRA") >= 0 && h.indexOf("FECHA") >= 0) set("siembra");
       else if(h.indexOf("BANDEJAS SEMBRADAS") >= 0) set("bandejas");
+      else if(h.indexOf("CUBICACION") >= 0 || h.indexOf("ALVEOLO") >= 0) set("alveolos");
       else if(h.indexOf("GERMINACION") >= 0) set("germ");
       else if(h.indexOf("PLANTAS TOTALES") >= 0) set("plantasTotales");
       else if(h.indexOf("MAXIMO DIAS") >= 0) set("diasMax");
@@ -6598,7 +6694,8 @@ function renderProductionCard(p){
     + '  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:10px;font-size:12px;color:#333">'
     + '    <div><strong>' + s.diasEnInvernadero + '</strong> días en invernadero</div>'
     + (s.diasRetraso > 0 ? '<div style="color:#b3261e;font-weight:700"><strong>' + s.diasRetraso + '</strong> días de retraso</div>' : '<div>Máx: ' + fMaxStr + '</div>')
-    + '    <div>Germinación: <strong>' + germPct + '%</strong></div>'
+    + '    <div>Germinación: <strong>' + (p.germPendiente && !(+p.germinacion) ? 'Pendiente' : germPct + '%') + '</strong></div>'
+    + (p.alveolos ? '    <div>Bandeja: <strong>' + p.alveolos + ' alvéolos</strong></div>' : '')
     + '    <div>Plantas/bandeja: <strong>' + (plantasPorBandejaReal(p) > 0 ? fmtNum(Math.round(plantasPorBandejaReal(p))) : "—") + '</strong></div>'
     + '    <div>Despachadas: <strong>' + fmtNum(s.despachadas) + '</strong></div>'
     + '    <div>Plantas totales: <strong>' + fmtNum(s.plantasTotales) + '</strong></div>'

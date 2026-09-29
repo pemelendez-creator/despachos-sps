@@ -150,6 +150,7 @@
     if(r.maps && /^https:\/\//.test(r.maps)) h += '<div class="row"><span>🧭</span><span><a href="' + esc(r.maps) + '" target="_blank" rel="noopener">Abrir en Google Maps</a></span></div>';
     if(r.telefono) h += '<div class="row"><span>📞</span><span><a href="tel:' + esc(String(r.telefono).replace(/\s/g,"")) + '">' + esc(r.telefono) + '</a></span></div>';
     h += '<div class="row" style="margin-top:8px"><span>📦</span><span class="big">' + fmtNum(r.bandejas) + ' bandejas</span></div>';
+    if(+r.alveolos) h += '<div class="row"><span>🧊</span><span>Bandejas de ' + fmtNum(r.alveolos) + ' alvéolos</span></div>';
     if(r.camion) h += '<div class="row"><span>🚛</span><span>' + esc(r.camion) + '</span></div>';
     if(r.contrato || r.sps) h += '<div class="row"><span>🌱</span><span>Contrato ' + esc(r.contrato || "—") + ' · SPS ' + esc(r.sps || "—") + '</span></div>';
     if(r.obs) h += '<div class="row"><span>📝</span><span>' + esc(r.obs) + '</span></div>';
