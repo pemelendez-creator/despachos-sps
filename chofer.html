@@ -50,6 +50,12 @@
   .kv{font-size:14px;margin:3px 0}
   .kv b{color:var(--navy)}
   .hidden{display:none !important}
+  .cam{position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column}
+  .cam video{flex:1;width:100%;height:100%;object-fit:cover;background:#000}
+  .cam .bar{display:flex;gap:10px;padding:14px;background:#000;justify-content:space-between;align-items:center}
+  .cam .shot{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#e53935;flex:none}
+  .cam .side{background:transparent;border:1px solid #fff;color:#fff;border-radius:10px;padding:10px 14px;font-size:15px;font-weight:700;min-width:96px}
+  .cam .tip{position:absolute;top:0;left:0;right:0;padding:12px;color:#fff;text-align:center;font-weight:700;background:rgba(0,0,0,.45)}
   .center{text-align:center;color:var(--muted);padding:40px 10px}
 </style>
 
@@ -98,7 +104,7 @@
   var token = (new URLSearchParams(location.search).get("t") || "").trim();
   var main = document.getElementById("main");
   var entrega = null;
-  var fotoData = null;
+  var fotoData = null, fotoAt = "";
   var gps = null, gpsErr = "";
 
   function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
@@ -166,7 +172,7 @@
   }
 
   function render(){
-    fotoData = null; gps = null; gpsErr = "";
+    fotoData = null; fotoAt = ""; gps = null; gpsErr = ""; stopCamera();
     var r = entrega.resumen || {};
     var h = stepsHtml() + resumenHtml();
 
@@ -195,15 +201,14 @@
         + '<label>Bandejas entregadas</label><input type="number" id="c_bandejas" inputmode="numeric" min="0" value="' + (+i.bandejas || +r.bandejas || "") + '">';
     }
     h += '<label>Foto ' + (etapa === "inicio" ? "de la carga" : "de la entrega o guía firmada") + '</label>'
-      + '<label class="photo" id="photoBox" for="c_foto" style="margin:0;color:var(--blue)">📷 Tomar foto<small>Toca aquí para abrir la cámara</small></label>'
-      + '<input type="file" id="c_foto" accept="image/*" capture="environment" class="hidden">'
+      + '<div class="photo" id="photoBox" role="button" style="margin:0;color:var(--blue)">📷 Tomar foto<small>Se abre la cámara (no se pueden usar fotos de la galería)</small></div>'
       + '<label>Observaciones (opcional)</label><textarea id="c_obs" placeholder="Ej: faltó 1 bandeja, portón cerrado…"></textarea>'
       + '<div class="gps" id="gpsInfo">📍 Obteniendo ubicación…</div>'
       + '<button class="btn ' + (etapa === "inicio" ? "" : "go") + '" id="c_send">' + (etapa === "inicio" ? "▶️ Iniciar despacho" : "✅ Confirmar entrega") + '</button>'
       + '<div id="c_msg"></div></div>';
     main.innerHTML = h;
 
-    document.getElementById("c_foto").addEventListener("change", onPhoto);
+    document.getElementById("photoBox").addEventListener("click", function(){ openCamera(etapa); });
     document.getElementById("c_send").addEventListener("click", function(){ send(etapa); });
     askGps();
   }
@@ -220,36 +225,83 @@
     }, {enableHighAccuracy: true, timeout: 20000, maximumAge: 60000});
   }
 
-  // Reduce la foto para que pese poco (señal rural) sin perder lo importante
-  function onPhoto(ev){
-    var file = ev.target.files && ev.target.files[0];
-    if(!file) return;
+  /* ===== Cámara en vivo: la foto SOLO puede tomarse en el momento (sin galería) ===== */
+  var camStream = null, camFacing = "environment";
+  function stopCamera(){
+    if(camStream){ camStream.getTracks().forEach(function(t){ t.stop(); }); camStream = null; }
+    var o = document.getElementById("camOv"); if(o) o.remove();
+  }
+  function camHelp(msg){
     var box = document.getElementById("photoBox");
-    box.innerHTML = "Procesando foto…";
-    var reader = new FileReader();
-    reader.onload = function(){
-      var img = new Image();
-      img.onload = function(){
-        var max = 1100, w = img.width, h = img.height;
-        if(w > h && w > max){ h = Math.round(h * max / w); w = max; }
-        else if(h >= w && h > max){ w = Math.round(w * max / h); h = max; }
-        var c = document.createElement("canvas");
-        c.width = w; c.height = h;
-        c.getContext("2d").drawImage(img, 0, 0, w, h);
-        var q = 0.72, data = c.toDataURL("image/jpeg", q);
-        while(data.length > 420000 && q > 0.3){ q -= 0.1; data = c.toDataURL("image/jpeg", q); }
-        if(data.length > 420000){
-          c.width = Math.round(w * 0.7); c.height = Math.round(h * 0.7);
-          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-          data = c.toDataURL("image/jpeg", 0.5);
-        }
-        fotoData = data;
-        box.innerHTML = '<img src="' + data + '" alt="Foto"><small>Toca para cambiar la foto</small>';
-      };
-      img.onerror = function(){ box.innerHTML = "📷 No se pudo leer la foto. Intenta de nuevo."; };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
+    if(box) box.innerHTML = "📷 " + msg + "<small>Toca aquí para intentar de nuevo</small>";
+  }
+  function openCamera(etapa){
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      camHelp("Este navegador no permite usar la cámara. Abre el link en Chrome (Android) o Safari (iPhone).");
+      return;
+    }
+    stopCamera();
+    var ov = document.createElement("div");
+    ov.className = "cam"; ov.id = "camOv";
+    ov.innerHTML = '<video id="camVid" autoplay playsinline muted></video>'
+      + '<div class="tip">' + (etapa === "inicio" ? "Foto de la carga" : "Foto de la entrega o guía firmada") + '</div>'
+      + '<div class="bar"><button class="side" id="camX">✕ Cancelar</button>'
+      + '<button class="shot" id="camShot" aria-label="Tomar foto" disabled></button>'
+      + '<button class="side" id="camFlip">🔄 Girar</button></div>';
+    document.body.appendChild(ov);
+    document.getElementById("camX").onclick = stopCamera;
+    document.getElementById("camFlip").onclick = function(){ camFacing = camFacing === "environment" ? "user" : "environment"; startStream(); };
+    document.getElementById("camShot").onclick = function(){ capture(etapa); };
+    startStream();
+  }
+  function startStream(){
+    if(camStream){ camStream.getTracks().forEach(function(t){ t.stop(); }); camStream = null; }
+    var vid = document.getElementById("camVid"), shot = document.getElementById("camShot");
+    if(shot) shot.disabled = true;
+    navigator.mediaDevices.getUserMedia({video: {facingMode: {ideal: camFacing}, width: {ideal: 1920}, height: {ideal: 1080}}, audio: false})
+      .then(function(st){
+        camStream = st;
+        if(!document.getElementById("camOv")){ stopCamera(); return; }
+        vid.srcObject = st;
+        var p = vid.play(); if(p && p.catch) p.catch(function(){});
+        vid.onloadedmetadata = function(){ if(shot) shot.disabled = false; };
+        setTimeout(function(){ if(shot && vid.videoWidth) shot.disabled = false; }, 800);
+      })
+      .catch(function(err){
+        stopCamera();
+        var denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
+        camHelp(denied
+          ? "Debes permitir el uso de la cámara. Toca el candado 🔒 junto a la dirección → Permisos → Cámara → Permitir."
+          : "No se pudo abrir la cámara (" + esc(err && err.name || "error") + ").");
+      });
+  }
+  function two(n){ return (n < 10 ? "0" : "") + n; }
+  // Toma la foto del video, la reduce (señal rural) y le estampa fecha, hora y GPS
+  function capture(etapa){
+    var vid = document.getElementById("camVid");
+    if(!vid || !vid.videoWidth){ return; }
+    var max = 1100, w = vid.videoWidth, h = vid.videoHeight;
+    if(w > h && w > max){ h = Math.round(h * max / w); w = max; }
+    else if(h >= w && h > max){ w = Math.round(w * max / h); h = max; }
+    var c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    var g = c.getContext("2d");
+    g.drawImage(vid, 0, 0, w, h);
+    var d = new Date();
+    var linea1 = "SPS · " + (etapa === "inicio" ? "INICIO" : "ENTREGA") + " · " + two(d.getDate()) + "-" + two(d.getMonth() + 1) + "-" + d.getFullYear() + " " + two(d.getHours()) + ":" + two(d.getMinutes());
+    var linea2 = gps ? ("GPS " + gps.lat + ", " + gps.lng + " (±" + gps.precision + " m)") : "GPS no disponible";
+    var fs = Math.max(14, Math.round(w / 40));
+    g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(0, h - fs * 2.9, w, fs * 2.9);
+    g.fillStyle = "#fff"; g.font = "bold " + fs + "px Arial, sans-serif";
+    g.fillText(linea1, fs * 0.6, h - fs * 1.65);
+    g.font = fs * 0.85 + "px Arial, sans-serif";
+    g.fillText(linea2, fs * 0.6, h - fs * 0.55);
+    var q = 0.72, data = c.toDataURL("image/jpeg", q);
+    while(data.length > 420000 && q > 0.3){ q -= 0.1; data = c.toDataURL("image/jpeg", q); }
+    stopCamera();
+    fotoData = data; fotoAt = d.toISOString();
+    var box = document.getElementById("photoBox");
+    box.innerHTML = '<img src="' + data + '" alt="Foto"><small>Toca para tomar otra foto</small>';
   }
 
   function showMsg(cls, txt){
@@ -264,6 +316,8 @@
       bandejas: isNaN(bandejas) ? 0 : bandejas,
       obs: obs,
       foto: !!fotoData,
+      fotoCamara: !!fotoData,
+      fotoAt: fotoAt || "",
       gps: gps,
       gpsError: gps ? "" : (gpsErr || "no disponible"),
       at: FBC.serverTimestamp(),
