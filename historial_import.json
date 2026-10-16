@@ -1,0 +1,938 @@
+[
+  {
+    "num": "COT-0001",
+    "numCot": "COT-0001",
+    "fecha": "2026-07-08",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SOS",
+    "patente": "KXZD30",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "240511",
+    "items": [
+      {
+        "desc": "Aceite SAE 5W30 Top Tec",
+        "qty": 2.0,
+        "price": 52900.0
+      },
+      {
+        "desc": "Filtro de aceite",
+        "qty": 1.0,
+        "price": 9400.0
+      },
+      {
+        "desc": "Filtro de combustible",
+        "qty": 1.0,
+        "price": 38980.0
+      },
+      {
+        "desc": "Filtro de aire",
+        "qty": 1.0,
+        "price": 19980.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 15600.0
+      },
+      {
+        "desc": "Agua limpiaparabrisas",
+        "qty": 1.0,
+        "price": 5600.0
+      },
+      {
+        "desc": "Agua coolant",
+        "qty": 1.0,
+        "price": 4600.0
+      },
+      {
+        "desc": "ampolleta 12v doble contacto",
+        "qty": 3.0,
+        "price": 1200.0
+      },
+      {
+        "desc": "Mano de obra - mantención básica",
+        "qty": 1.0,
+        "price": 40000.0
+      }
+    ],
+    "subtotal": 243560.0,
+    "iva": 46276.0,
+    "total": 289836.0,
+    "guardadoEl": "2026-09-24T01:08:24.934756+00:00"
+  },
+  {
+    "num": "COT-0002",
+    "numCot": "COT-0002",
+    "fecha": "2026-07-08",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SOS",
+    "patente": "TLWD60",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "",
+    "items": [
+      {
+        "desc": "parabrisas jac urban",
+        "qty": 1.0,
+        "price": 270000.0
+      },
+      {
+        "desc": "instalacion",
+        "qty": 1.0,
+        "price": 70000.0
+      }
+    ],
+    "subtotal": 340000.0,
+    "iva": 64600.0,
+    "total": 404600.0,
+    "guardadoEl": "2026-09-24T01:08:24.934868+00:00"
+  },
+  {
+    "num": "COT-0003",
+    "numCot": "COT-0003",
+    "fecha": "2026-07-14",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SPS",
+    "patente": "SRC-552",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "000000",
+    "items": [
+      {
+        "desc": "focos traseros led",
+        "qty": 2.0,
+        "price": 19200.0
+      },
+      {
+        "desc": "cable 7 vias",
+        "qty": 10.0,
+        "price": 1800.0
+      },
+      {
+        "desc": "revision tecnica",
+        "qty": 1.0,
+        "price": 25500.0
+      },
+      {
+        "desc": "macho carro",
+        "qty": 1.0,
+        "price": 12600.0
+      },
+      {
+        "desc": "hembra carro",
+        "qty": 1.0,
+        "price": 12600.0
+      },
+      {
+        "desc": "terminales",
+        "qty": 16.0,
+        "price": 950.0
+      },
+      {
+        "desc": "mano de obra",
+        "qty": 1.0,
+        "price": 85000.0
+      }
+    ],
+    "subtotal": 207300.0,
+    "iva": 39387.0,
+    "total": 246687.0,
+    "guardadoEl": "2026-09-24T01:08:24.934903+00:00"
+  },
+  {
+    "num": "COT-0004",
+    "numCot": "COT-0004",
+    "fecha": "2026-07-22",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SPS",
+    "patente": "TLWD60",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "102310",
+    "items": [
+      {
+        "desc": "Aceite SAE 15W40",
+        "qty": 2.0,
+        "price": 78000.0
+      },
+      {
+        "desc": "Filtro secador de aire",
+        "qty": 1.0,
+        "price": 65200.0
+      },
+      {
+        "desc": "Separador de agua y combustible",
+        "qty": 1.0,
+        "price": 85600.0
+      },
+      {
+        "desc": "Filtro de aire interno",
+        "qty": 1.0,
+        "price": 49700.0
+      },
+      {
+        "desc": "revision",
+        "qty": 1.0,
+        "price": 35000.0
+      },
+      {
+        "desc": "frenos",
+        "qty": 4.0,
+        "price": 25000.0
+      },
+      {
+        "desc": "foco delantero",
+        "qty": 1.0,
+        "price": 32700.0
+      }
+    ],
+    "subtotal": 524200.0,
+    "iva": 99598.0,
+    "total": 623798.0,
+    "guardadoEl": "2026-09-24T01:08:24.934919+00:00"
+  },
+  {
+    "num": "COT-0005",
+    "numCot": "COT-0005",
+    "fecha": "2026-07-22",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SPS",
+    "patente": "JVXR17",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "399710",
+    "items": [
+      {
+        "desc": "Aceite SAE 5W30 Top Tec",
+        "qty": 2.0,
+        "price": 52900.0
+      },
+      {
+        "desc": "Filtro de aire",
+        "qty": 1.0,
+        "price": 19980.0
+      },
+      {
+        "desc": "Filtro de aceite",
+        "qty": 1.0,
+        "price": 9400.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 15600.0
+      },
+      {
+        "desc": "Alineación",
+        "qty": 4.0,
+        "price": 6200.0
+      },
+      {
+        "desc": "Balanceo",
+        "qty": 4.0,
+        "price": 5000.0
+      },
+      {
+        "desc": "Regulación de freno de mano",
+        "qty": 1.0,
+        "price": 20000.0
+      },
+      {
+        "desc": "Agua coolant",
+        "qty": 1.0,
+        "price": 4600.0
+      },
+      {
+        "desc": "Agua limpiaparabrisas",
+        "qty": 1.0,
+        "price": 5600.0
+      },
+      {
+        "desc": "Rectificado de disco",
+        "qty": 2.0,
+        "price": 17000.0
+      }
+    ],
+    "subtotal": 259780.0,
+    "iva": 49358.0,
+    "total": 309138.0,
+    "guardadoEl": "2026-09-24T01:08:24.934930+00:00"
+  },
+  {
+    "num": "COT-0006",
+    "numCot": "COT-0006",
+    "fecha": "2026-07-31",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SPS",
+    "patente": "JVXR15",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "302.628",
+    "items": [
+      {
+        "desc": "Aceite SAE 5W30 Top Tec",
+        "qty": 2.0,
+        "price": 52900.0
+      },
+      {
+        "desc": "Filtro de aceite",
+        "qty": 1.0,
+        "price": 9400.0
+      },
+      {
+        "desc": "Filtro de combustible",
+        "qty": 1.0,
+        "price": 38980.0
+      },
+      {
+        "desc": "Filtro de aire",
+        "qty": 1.0,
+        "price": 19980.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 15600.0
+      },
+      {
+        "desc": "Agua coolant",
+        "qty": 1.0,
+        "price": 4600.0
+      },
+      {
+        "desc": "Mano de obra - mantención básica",
+        "qty": 1.0,
+        "price": 70000.0
+      },
+      {
+        "desc": "Rectificado de disco",
+        "qty": 2.0,
+        "price": 17000.0
+      },
+      {
+        "desc": "Cambio de pastillas de freno",
+        "qty": 1.0,
+        "price": 58000.0
+      }
+    ],
+    "subtotal": 356360.0,
+    "iva": 67708.0,
+    "total": 424068.0,
+    "guardadoEl": "2026-09-24T01:08:24.934940+00:00"
+  },
+  {
+    "num": "COT-0007",
+    "numCot": "COT-0007",
+    "fecha": "2026-07-31",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SPS",
+    "patente": "SYVT12",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "184.819",
+    "items": [
+      {
+        "desc": "Aceite SAE 5W30 Top Tec",
+        "qty": 2.0,
+        "price": 52900.0
+      },
+      {
+        "desc": "Filtro de aceite",
+        "qty": 1.0,
+        "price": 9400.0
+      },
+      {
+        "desc": "Filtro de combustible",
+        "qty": 1.0,
+        "price": 38980.0
+      },
+      {
+        "desc": "Filtro de aire",
+        "qty": 1.0,
+        "price": 19980.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 15600.0
+      },
+      {
+        "desc": "Alineación",
+        "qty": 4.0,
+        "price": 6200.0
+      },
+      {
+        "desc": "Balanceo",
+        "qty": 4.0,
+        "price": 5000.0
+      },
+      {
+        "desc": "Regulación de freno de mano",
+        "qty": 1.0,
+        "price": 20000.0
+      }
+    ],
+    "subtotal": 254560.0,
+    "iva": 48366.0,
+    "total": 302926.0,
+    "guardadoEl": "2026-09-24T01:08:24.934950+00:00"
+  },
+  {
+    "num": "COT-0008",
+    "numCot": "COT-0008",
+    "fecha": "2026-08-04",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SPS",
+    "patente": "KXZD30",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "242914",
+    "items": [
+      {
+        "desc": "Embreague toyota gun 2.4 4x4",
+        "qty": 459600.0,
+        "price": 1.0
+      },
+      {
+        "desc": "Cilindro Hidraulico",
+        "qty": 55000.0,
+        "price": 1.0
+      },
+      {
+        "desc": "bomba de embreague",
+        "qty": 85000.0,
+        "price": 1.0
+      },
+      {
+        "desc": "rodamiento empuje",
+        "qty": 39990.0,
+        "price": 1.0
+      },
+      {
+        "desc": "Mano de obra - reparación mayor",
+        "qty": 1.0,
+        "price": 80000.0
+      }
+    ],
+    "subtotal": 719590.0,
+    "iva": 136722.0,
+    "total": 856312.0,
+    "guardadoEl": "2026-09-24T01:08:24.934960+00:00"
+  },
+  {
+    "num": "COT-0009",
+    "numCot": "COT-0009",
+    "fecha": "2026-08-11",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SPS",
+    "patente": "VTYZ35",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "27327",
+    "items": [
+      {
+        "desc": "hembra carro",
+        "qty": 1.0,
+        "price": 12600.0
+      },
+      {
+        "desc": "cable 7 vias",
+        "qty": 3.0,
+        "price": 5300.0
+      },
+      {
+        "desc": "modulo",
+        "qty": 1.0,
+        "price": 46600.0
+      },
+      {
+        "desc": "mano de obra",
+        "qty": 1.0,
+        "price": 60000.0
+      }
+    ],
+    "subtotal": 135100.0,
+    "iva": 25669.0,
+    "total": 160769.0,
+    "guardadoEl": "2026-09-24T01:08:24.934970+00:00"
+  },
+  {
+    "num": "COT-0010",
+    "numCot": "COT-0010",
+    "fecha": "2026-08-11",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SPS",
+    "patente": "SRC-758",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "",
+    "items": [
+      {
+        "desc": "macho carro",
+        "qty": 1.0,
+        "price": 12600.0
+      },
+      {
+        "desc": "cable 7 vias",
+        "qty": 5300.0,
+        "price": 4.0
+      },
+      {
+        "desc": "focos led",
+        "qty": 4.0,
+        "price": 6800.0
+      },
+      {
+        "desc": "mano de obra",
+        "qty": 1.0,
+        "price": 40000.0
+      }
+    ],
+    "subtotal": 101000.0,
+    "iva": 19190.0,
+    "total": 120190.0,
+    "guardadoEl": "2026-09-24T01:08:24.935001+00:00"
+  },
+  {
+    "num": "COT-0011",
+    "numCot": "COT-0011",
+    "fecha": "2026-08-19",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SOS",
+    "patente": "JVXR14",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "207076",
+    "items": [
+      {
+        "desc": "Aceite SAE 5W30 Top Tec",
+        "qty": 2.0,
+        "price": 52900.0
+      },
+      {
+        "desc": "Filtro de aire",
+        "qty": 1.0,
+        "price": 19980.0
+      },
+      {
+        "desc": "Filtro de combustible",
+        "qty": 1.0,
+        "price": 38980.0
+      },
+      {
+        "desc": "Filtro de aceite",
+        "qty": 1.0,
+        "price": 9400.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 15600.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 15600.0
+      },
+      {
+        "desc": "Mano de obra - mantención básica",
+        "qty": 1.0,
+        "price": 70000.0
+      }
+    ],
+    "subtotal": 275360.0,
+    "iva": 52318.0,
+    "total": 327678.0,
+    "guardadoEl": "2026-09-24T01:08:24.935014+00:00"
+  },
+  {
+    "num": "COT-0012",
+    "numCot": "COT-0012",
+    "fecha": "2026-08-19",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SOS",
+    "patente": "JVXR14",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "207076",
+    "items": [
+      {
+        "desc": "disco de embriague",
+        "qty": 1.0,
+        "price": 362500.0
+      },
+      {
+        "desc": "volante de inercia",
+        "qty": 1.0,
+        "price": 460000.0
+      },
+      {
+        "desc": "mano de obra",
+        "qty": 1.0,
+        "price": 90000.0
+      }
+    ],
+    "subtotal": 912500.0,
+    "iva": 173375.0,
+    "total": 1085875.0,
+    "guardadoEl": "2026-09-24T01:08:24.935024+00:00"
+  },
+  {
+    "num": "COT-0013",
+    "numCot": "COT-0013",
+    "fecha": "2026-08-26",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SOS",
+    "patente": "TZJZ12",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "129254",
+    "items": [
+      {
+        "desc": "Aceite SAE 5W30 Top Tec",
+        "qty": 2.0,
+        "price": 52900.0
+      },
+      {
+        "desc": "Filtro de aceite",
+        "qty": 1.0,
+        "price": 9400.0
+      },
+      {
+        "desc": "Filtro de aire",
+        "qty": 1.0,
+        "price": 19980.0
+      },
+      {
+        "desc": "Filtro de combustible",
+        "qty": 1.0,
+        "price": 38980.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 15600.0
+      },
+      {
+        "desc": "Agua limpiaparabrisas",
+        "qty": 1.0,
+        "price": 5600.0
+      },
+      {
+        "desc": "Agua coolant",
+        "qty": 1.0,
+        "price": 4600.0
+      },
+      {
+        "desc": "Balanceo",
+        "qty": 4.0,
+        "price": 5000.0
+      },
+      {
+        "desc": "Alineación",
+        "qty": 4.0,
+        "price": 6200.0
+      },
+      {
+        "desc": "Rectificado de tambor",
+        "qty": 2.0,
+        "price": 19000.0
+      },
+      {
+        "desc": "mano de obra",
+        "qty": 1.0,
+        "price": 40000.0
+      }
+    ],
+    "subtotal": 322760.0,
+    "iva": 61324.0,
+    "total": 384084.0,
+    "guardadoEl": "2026-09-24T01:08:24.935034+00:00"
+  },
+  {
+    "num": "COT-0014",
+    "numCot": "COT-0014",
+    "fecha": "2026-09-16",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SOS",
+    "patente": "LFGV69",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "158963",
+    "items": [
+      {
+        "desc": "Aceite SAE 5W30 Top Tec",
+        "qty": 2.0,
+        "price": 52900.0
+      },
+      {
+        "desc": "Filtro de aceite",
+        "qty": 1.0,
+        "price": 14200.0
+      },
+      {
+        "desc": "Filtro de combustible",
+        "qty": 1.0,
+        "price": 48979.0
+      },
+      {
+        "desc": "Filtro de aire",
+        "qty": 1.0,
+        "price": 29980.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 18600.0
+      },
+      {
+        "desc": "Regulación de frenos",
+        "qty": 1.0,
+        "price": 13000.0
+      },
+      {
+        "desc": "reparacion bcm",
+        "qty": 1.0,
+        "price": 110000.0
+      }
+    ],
+    "subtotal": 340559.0,
+    "iva": 64706.0,
+    "total": 405265.0,
+    "guardadoEl": "2026-09-24T01:08:24.935044+00:00"
+  },
+  {
+    "num": "COT-0015",
+    "numCot": "COT-0015",
+    "fecha": "2026-09-17",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SOS",
+    "patente": "KXZD19",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "502620",
+    "items": [
+      {
+        "desc": "Aceite SAE 5W30 Top Tec",
+        "qty": 2.0,
+        "price": 52900.0
+      },
+      {
+        "desc": "Filtro de aceite",
+        "qty": 1.0,
+        "price": 9400.0
+      },
+      {
+        "desc": "Filtro de combustible",
+        "qty": 1.0,
+        "price": 38980.0
+      },
+      {
+        "desc": "Filtro de aire",
+        "qty": 1.0,
+        "price": 19980.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 15600.0
+      },
+      {
+        "desc": "Mano de obra - mantención básica",
+        "qty": 1.0,
+        "price": 70000.0
+      },
+      {
+        "desc": "Balanceo",
+        "qty": 4.0,
+        "price": 5000.0
+      },
+      {
+        "desc": "Regulación de frenos",
+        "qty": 1.0,
+        "price": 13000.0
+      },
+      {
+        "desc": "Rectificado de disco",
+        "qty": 2.0,
+        "price": 17000.0
+      },
+      {
+        "desc": "pastillas",
+        "qty": 1.0,
+        "price": 55000.0
+      }
+    ],
+    "subtotal": 381760.0,
+    "iva": 72534.0,
+    "total": 454294.0,
+    "guardadoEl": "2026-09-24T01:08:24.935054+00:00"
+  },
+  {
+    "num": "COT-0016",
+    "numCot": "COT-0016",
+    "fecha": "2026-09-23",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SOS",
+    "patente": "SYVT12",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "194566",
+    "items": [
+      {
+        "desc": "Aceite SAE 5W30 Top Tec",
+        "qty": 2.0,
+        "price": 52900.0
+      },
+      {
+        "desc": "Filtro de aceite",
+        "qty": 1.0,
+        "price": 9400.0
+      },
+      {
+        "desc": "Filtro de combustible",
+        "qty": 1.0,
+        "price": 38980.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 15600.0
+      },
+      {
+        "desc": "Filtro de aire",
+        "qty": 1.0,
+        "price": 19980.0
+      },
+      {
+        "desc": "Agua limpiaparabrisas",
+        "qty": 1.0,
+        "price": 5600.0
+      },
+      {
+        "desc": "Regulación de freno de mano",
+        "qty": 1.0,
+        "price": 20000.0
+      },
+      {
+        "desc": "Mano de obra - mantención básica",
+        "qty": 1.0,
+        "price": 70000.0
+      },
+      {
+        "desc": "Alineación",
+        "qty": 4.0,
+        "price": 6200.0
+      },
+      {
+        "desc": "Balanceo",
+        "qty": 4.0,
+        "price": 5000.0
+      },
+      {
+        "desc": "Rectificado de disco",
+        "qty": 2.0,
+        "price": 17000.0
+      }
+    ],
+    "subtotal": 364160.0,
+    "iva": 69190.0,
+    "total": 433350.0,
+    "guardadoEl": "2026-09-24T01:08:24.935064+00:00"
+  },
+  {
+    "num": "COT-0017",
+    "numCot": "COT-0017",
+    "fecha": "2026-09-23",
+    "cliente": "South pacific seed chiles s.a.",
+    "direccion": "El Cristo s/n san Vicente t.t.",
+    "telefono": "977497221",
+    "contacto": "Logística SOS",
+    "patente": "JVXR17",
+    "rutcliente": "99.516.260-1",
+    "kilometraje": "400232",
+    "items": [
+      {
+        "desc": "Aceite SAE 5W30 Top Tec",
+        "qty": 2.0,
+        "price": 52900.0
+      },
+      {
+        "desc": "Filtro de aceite",
+        "qty": 1.0,
+        "price": 9400.0
+      },
+      {
+        "desc": "Filtro de combustible",
+        "qty": 1.0,
+        "price": 38980.0
+      },
+      {
+        "desc": "Filtro de cabina",
+        "qty": 1.0,
+        "price": 15600.0
+      },
+      {
+        "desc": "Filtro de aire",
+        "qty": 1.0,
+        "price": 19980.0
+      },
+      {
+        "desc": "Agua limpiaparabrisas",
+        "qty": 1.0,
+        "price": 5600.0
+      },
+      {
+        "desc": "Regulación de freno de mano",
+        "qty": 1.0,
+        "price": 20000.0
+      },
+      {
+        "desc": "Mano de obra - mantención básica",
+        "qty": 1.0,
+        "price": 70000.0
+      },
+      {
+        "desc": "Alineación",
+        "qty": 4.0,
+        "price": 6200.0
+      },
+      {
+        "desc": "Balanceo",
+        "qty": 4.0,
+        "price": 5000.0
+      },
+      {
+        "desc": "Rectificado de disco",
+        "qty": 2.0,
+        "price": 17000.0
+      },
+      {
+        "desc": "Rectificado de tambor",
+        "qty": 2.0,
+        "price": 19000.0
+      }
+    ],
+    "subtotal": 402160.0,
+    "iva": 76410.0,
+    "total": 478570.0,
+    "guardadoEl": "2026-09-24T01:08:24.935074+00:00"
+  }
+]

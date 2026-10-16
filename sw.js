@@ -5,7 +5,7 @@
    siempre a la red para datos en tiempo real).
 */
 
-const CACHE_NAME = 'sps-despachos-v4';
+const CACHE_NAME = 'sps-despachos-v3';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -89,21 +89,4 @@ self.addEventListener('fetch', function(event){
     );
     return;
   }
-});
-
-// Al tocar una notificación: abre (o enfoca) la app
-self.addEventListener('notificationclick', function(event){
-  event.notification.close();
-  var data = event.notification.data || {};
-  event.waitUntil(
-    self.clients.matchAll({type: 'window', includeUncontrolled: true}).then(function(list){
-      for(var i = 0; i < list.length; i++){
-        if('focus' in list[i]){
-          if(data.open) list[i].postMessage({open: data.open});
-          return list[i].focus();
-        }
-      }
-      if(self.clients.openWindow) return self.clients.openWindow('./');
-    })
-  );
 });
