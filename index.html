@@ -239,6 +239,8 @@
   .verpill{display:inline-block;vertical-align:middle;font-size:11px;font-weight:800;background:#2e7d52;color:#fff;border-radius:999px;padding:2px 8px;margin-left:6px;letter-spacing:.02em}
   #newVerBar{position:fixed;left:0;right:0;top:0;z-index:100000;background:#b06a00;color:#fff;text-align:center;padding:10px 14px;font-weight:700;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.2)}
   #newVerBar button{margin-left:10px;border:0;border-radius:8px;padding:6px 12px;font-weight:800;color:#b06a00;background:#fff;cursor:pointer}
+  .automail{display:inline-flex;align-items:center;font-size:12.5px;font-weight:700;color:#1f5c3b;background:#e6f3ec;border:1px solid #bfe0cd;border-radius:8px;padding:6px 10px}
+  .geobox{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#eef6ff;border:1px solid var(--blue-line);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:13px}
   .alvchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
   .alvchip{font-size:12px;background:#eef3f8;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--ink)}
   .alvchip.pend{background:#fff4e2;border-color:#f0d9ab;color:#7a4a00}
@@ -582,6 +584,7 @@
 
     <div class="toolbar">
       <button class="btn primary sm" onclick="openInventory()" style="background:#0f7d3d" title="Panel de producciones del invernadero — stock, alertas de vencimiento e importación del reporte">🌱 Inventario Invernadero</button>
+      <span id="autoMailBadge" class="automail" style="display:none" title="Cada despacho se informa solo por correo a logística, HQ, Estrella y Prod. Assist">📧 Correo automático activo</span>
       <button class="btn primary sm" onclick="openOutlook()" id="t_bmail">📧 Enviar pendientes (Outlook)</button>
       <button class="btn ghost sm" id="outlookWebBtn" onclick="openOutlookWeb()" title="Abre Outlook Web en el navegador (útil si el Outlook de escritorio no responde)">🌐 Outlook Web</button>
       <button class="btn success sm" onclick="markPendingSent()" id="t_bmark">Marcar como enviados</button>
@@ -678,6 +681,7 @@
 <div class="ov" id="ovFarm"><div class="modal">
   <div class="mh"><h3 id="t_fmh">Agricultores</h3><button class="x" onclick="closeOv('ovFarm')">×</button></div>
   <div class="mb">
+    <div id="geoBox"></div>
     <input type="text" id="farmSearch" placeholder="🔍 Buscar agricultor por nombre, comuna o RUT…" oninput="renderFarmers()" style="margin-bottom:8px">
     <div id="farmList"></div><div class="sec" id="farmForm"></div></div>
 </div></div>
@@ -1214,7 +1218,7 @@ async function _loadFirebaseDataImpl(){
     ]);
 
     state.farmers = results[0].map(function(f){
-      return {
+      return Object.assign({}, f, {
         id: f._id,
         name: f.name || "",
         rut: f.rut || "",
@@ -1228,7 +1232,7 @@ async function _loadFirebaseDataImpl(){
         lat: f.lat != null ? +f.lat : null,
         lng: f.lng != null ? +f.lng : null,
         manualTravelMin: f.manualTravelMin != null ? +f.manualTravelMin : null
-      };
+      });
     });
 
     // Despachos vienen como array plano en Firestore, los agrupamos por fecha
@@ -1840,7 +1844,13 @@ function haversineKm(a,b){
   var s=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
   return R*2*Math.atan2(Math.sqrt(s),Math.sqrt(1-s));
 }
+function truckFactor(){ var v = +(state.config && state.config.truckFactor); return v > 0 ? v : 1.25; }
+function depotKey(){
+  var d = state.config && state.config.depot;
+  return (d && d.lat != null && d.lng != null) ? (+d.lat).toFixed(4) + "," + (+d.lng).toFixed(4) : "";
+}
 function distKm(f){
+  if(f && +f.kmGoogle > 0 && f.routeDepot === depotKey()) return +f.kmGoogle;
   if(!f||f.lat==null||f.lng==null) return null;
   var d=state.config.depot;
   if(d.lat==null||d.lng==null) return null;
@@ -1848,6 +1858,10 @@ function distKm(f){
 }
 function travelMin(f){
   if(f && f.manualTravelMin!=null && f.manualTravelMin!=="") return +f.manualTravelMin;
+  // Tiempo real por carretera (Google), ajustado a velocidad de camión
+  if(f && +f.travelMinGoogle > 0 && f.routeDepot === depotKey()){
+    return Math.round(+f.travelMinGoogle * truckFactor());
+  }
   var km=distKm(f); if(km==null) return null;
   var t=truckById("big")||state.config.trucks[0];
   return Math.round(km/(+t.speed||55)*60);
@@ -1965,6 +1979,159 @@ function changeVehicle(ds, id, val){
   renderAll();
 }
 
+/* ===================== GOOGLE MAPS (ubicación y tiempos reales) =====================
+   - Places API (New) "searchText": convierte la dirección del agricultor en coordenadas.
+   - Routes API "computeRoutes": tiempo y km reales por carretera desde la bodega.
+   Cada resultado se guarda en el agricultor (una sola llamada por agricultor). */
+function gKey(){ return String((state.config && state.config.googleApiKey) || "").trim(); }
+function _gFetch(url, body, mask){
+  return fetch(url, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-Goog-Api-Key": gKey(), "X-Goog-FieldMask": mask},
+    body: JSON.stringify(body)
+  }).then(function(r){
+    return r.json().catch(function(){ return {}; }).then(function(j){
+      if(!r.ok) throw new Error((j.error && j.error.message) || ("Error " + r.status));
+      return j;
+    });
+  });
+}
+function farmerQuery(f){
+  var parts = [f.address, String(f.comuna||"").replace(/\//g, ", "), f.region, "Chile"]
+    .map(function(x){ return String(x||"").trim(); }).filter(Boolean);
+  return parts.join(", ");
+}
+/* Dirección → {lat, lng, address, aprox} (aprox = solo se encontró la comuna o el camino) */
+function gGeocode(query){
+  if(!gKey()) return Promise.reject(new Error("Falta la clave API de Google en Configuración"));
+  return _gFetch("https://places.googleapis.com/v1/places:searchText", {
+    textQuery: query, languageCode: "es", regionCode: "CL",
+    locationBias: {rectangle: {low: {latitude: -39.0, longitude: -73.8}, high: {latitude: -31.5, longitude: -69.8}}}
+  }, "places.location,places.formattedAddress,places.types").then(function(j){
+    var pl = (j.places || [])[0];
+    if(!pl || !pl.location) return null;
+    var types = pl.types || [];
+    var aprox = !types.some(function(t){ return /street_address|premise|subpremise|establishment|point_of_interest|farm|plus_code/.test(t); });
+    return {lat: +pl.location.latitude.toFixed(6), lng: +pl.location.longitude.toFixed(6), address: pl.formattedAddress || "", aprox: aprox};
+  });
+}
+/* Ruta real bodega → agricultor: {min, km} */
+function gRoute(f){
+  var d = state.config.depot;
+  if(!gKey()) return Promise.reject(new Error("Falta la clave API de Google en Configuración"));
+  if(d.lat == null || f.lat == null) return Promise.resolve(null);
+  return _gFetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+    origin: {location: {latLng: {latitude: +d.lat, longitude: +d.lng}}},
+    destination: {location: {latLng: {latitude: +f.lat, longitude: +f.lng}}},
+    travelMode: "DRIVE", routingPreference: "TRAFFIC_UNAWARE", languageCode: "es-419", units: "METRIC"
+  }, "routes.duration,routes.distanceMeters").then(function(j){
+    var r = (j.routes || [])[0];
+    if(!r) return null;
+    return {min: Math.round(parseInt(String(r.duration||"0"), 10) / 60), km: Math.round((+r.distanceMeters || 0) / 100) / 10};
+  });
+}
+function _saveFarmerFields(f, upd){
+  Object.assign(f, upd);
+  if(storageMode === "firebase" && FBApi.isAvailable()) return FBApi.updateDocument("agricultores", f.id, upd);
+  saveState(); return Promise.resolve();
+}
+/* Calcula y guarda el tiempo real si falta o si cambió la bodega/ubicación */
+function ensureRoute(f){
+  if(!f || f.lat == null || f.lng == null || !gKey()) return Promise.resolve(false);
+  var key = depotKey(), coordKey = (+f.lat).toFixed(5) + "," + (+f.lng).toFixed(5);
+  if(+f.travelMinGoogle > 0 && f.routeDepot === key && f.routeCoords === coordKey) return Promise.resolve(false);
+  return gRoute(f).then(function(r){
+    if(!r) return false;
+    return _saveFarmerFields(f, {travelMinGoogle: r.min, kmGoogle: r.km, routeDepot: key, routeCoords: coordKey}).then(function(){ return true; });
+  });
+}
+/* Botón en la ficha: buscar la dirección escrita */
+function geocodeFarmerForm(){
+  var h = document.getElementById("ff_hint");
+  var f = {address: document.getElementById("ff_addr").value, comuna: document.getElementById("ff_comuna").value, region: document.getElementById("ff_region").value};
+  var q = farmerQuery(f);
+  if(!f.address && !f.comuna){ h.textContent = "Escribe la dirección o la comuna primero."; return; }
+  h.textContent = "Buscando en Google: " + q + " …";
+  gGeocode(q).then(function(g){
+    if(!g){ h.textContent = "Google no encontró esa dirección. Prueba con más detalle o pega el link de Maps."; return; }
+    document.getElementById("ff_lat").value = g.lat;
+    document.getElementById("ff_lng").value = g.lng;
+    document.getElementById("ff_maps").value = "https://www.google.com/maps?q=" + g.lat + "," + g.lng;
+    h.innerHTML = "📍 " + esc(g.address) + (g.aprox ? '<br><span style="color:var(--warn)">⚠ Ubicación aproximada (solo se encontró la comuna o el camino). Revísala en el mapa.</span>' : " ✓")
+      + '<br><a href="https://www.google.com/maps?q=' + g.lat + ',' + g.lng + '" target="_blank" rel="noopener">Ver en Google Maps</a> · Presiona Guardar.';
+  }).catch(function(e){ h.textContent = "❌ " + e.message; });
+}
+/* Proceso masivo: ubica a los agricultores sin coordenadas y calcula tiempos reales */
+var _geoRun = null;
+function bulkGeoStats(){
+  var sinUbic = state.farmers.filter(function(f){ return f.lat == null && (f.address || f.comuna); });
+  var sinRuta = state.farmers.filter(function(f){
+    return f.lat != null && !(+f.travelMinGoogle > 0 && f.routeDepot === depotKey());
+  });
+  return {sinUbic: sinUbic, sinRuta: sinRuta};
+}
+function startBulkGeo(){
+  if(!isAdmin()) return;
+  if(!gKey()){ alert("Primero ingresa la clave API de Google en Configuración."); return; }
+  var st = bulkGeoStats();
+  var total = st.sinUbic.length + st.sinRuta.length;
+  if(!total){ alert("✓ Todos los agricultores con dirección ya tienen ubicación y tiempo real."); return; }
+  if(!confirm("Google va a:\n\n  • Ubicar " + st.sinUbic.length + " agricultores por su dirección\n  • Calcular el tiempo real de " + (st.sinRuta.length + st.sinUbic.length) + " viajes desde la bodega\n\n"
+    + "Son aprox. " + (st.sinUbic.length * 2 + st.sinRuta.length) + " consultas (dentro de la cuota gratis mensual).\nPuedes detenerlo cuando quieras. ¿Comenzar?")) return;
+  _geoRun = {stop: false, ok: 0, aprox: 0, fail: 0, rutas: 0, done: 0, total: st.sinUbic.length + st.sinRuta.length};
+  var cola = st.sinUbic.map(function(f){ return {f: f, geo: true}; }).concat(st.sinRuta.map(function(f){ return {f: f, geo: false}; }));
+  var i = 0;
+  function paso(){
+    renderGeoProgress();
+    if(_geoRun.stop || i >= cola.length){ _geoRun.fin = true; renderGeoProgress(); renderFarmers(); return; }
+    var it = cola[i++], f = it.f;
+    var pr = it.geo ? gGeocode(farmerQuery(f)).then(function(g){
+      if(!g){ _geoRun.fail++; return; }
+      if(g.aprox) _geoRun.aprox++; else _geoRun.ok++;
+      return _saveFarmerFields(f, {lat: g.lat, lng: g.lng, mapsUrl: f.mapsUrl || ("https://www.google.com/maps?q=" + g.lat + "," + g.lng),
+        geoSource: "google", geoAprox: !!g.aprox, geoAddress: g.address});
+    }) : Promise.resolve();
+    pr.then(function(){ return ensureRoute(f); }).then(function(r){ if(r) _geoRun.rutas++; })
+      .catch(function(e){ _geoRun.fail++; _geoRun.lastError = e.message;
+        if(/API key|PERMISSION|billing|not been used|disabled/i.test(e.message)) _geoRun.stop = true; })
+      .then(function(){ _geoRun.done++; setTimeout(paso, 120); });
+  }
+  paso();
+}
+function renderGeoProgress(){
+  var box = document.getElementById("geoBox");
+  if(!box) return;
+  var st = bulkGeoStats();
+  if(!_geoRun){
+    box.innerHTML = isAdmin()
+      ? '<div class="geobox"><span>🌎 <strong>' + st.sinUbic.length + '</strong> sin ubicación · <strong>' + st.sinRuta.length + '</strong> sin tiempo real</span>'
+        + ' <button class="btn primary sm" onclick="startBulkGeo()">Ubicar con Google</button></div>' : "";
+    return;
+  }
+  var g = _geoRun, pct = Math.round(g.done / Math.max(1, g.total) * 100);
+  box.innerHTML = '<div class="geobox"><div style="flex:1"><div><strong>' + (g.fin ? "✓ Terminado" : "🌎 Ubicando con Google… " + pct + "%") + '</strong></div>'
+    + '<div class="bar" style="margin:6px 0"><i style="width:' + pct + '%"></i></div>'
+    + '<div style="font-size:12px">' + g.ok + ' ubicados · ' + g.aprox + ' aproximados (revisar) · ' + g.rutas + ' tiempos reales · ' + g.fail + ' sin resultado'
+    + (g.lastError ? '<br><span style="color:var(--danger)">Último error: ' + esc(g.lastError) + '</span>' : '') + '</div></div>'
+    + (g.fin ? '<button class="btn ghost sm" onclick="_geoRun=null;renderGeoProgress()">Cerrar</button>' : '<button class="btn danger sm" onclick="_geoRun.stop=true">Detener</button>') + '</div>';
+}
+/* Prueba de la clave desde Configuración */
+function testGoogleKey(){
+  var out = document.getElementById("cf_gtest");
+  var k = document.getElementById("cf_gkey").value.trim();
+  if(!k){ out.textContent = "Ingresa la clave primero."; return; }
+  var prev = state.config.googleApiKey; state.config.googleApiKey = k;
+  out.textContent = "Probando…";
+  gGeocode("Plaza de Armas, San Vicente de Tagua Tagua, Chile").then(function(g){
+    if(!g) throw new Error("La búsqueda no devolvió resultados");
+    return gRoute({lat: g.lat, lng: g.lng}).then(function(r){
+      out.innerHTML = '✅ Funciona. Búsqueda de direcciones OK' + (r ? ' · Ruta de prueba: ' + r.km + ' km, ' + r.min + ' min' : ' · (ruta no probada: falta ubicación de la bodega)');
+    });
+  }).catch(function(e){
+    out.innerHTML = '❌ ' + esc(e.message) + '<br><span style="font-size:12px">Revisa que estén activadas "Places API (New)" y "Routes API", y que la clave permita este sitio.</span>';
+  }).then(function(){ state.config.googleApiKey = prev; });
+}
+
 /* ============================ Bloqueo de días ============================ */
 /* Devuelve el motivo si el día está bloqueado (feriado, sin camiones, fin de semana), o "" */
 function dayBlockReason(ds){
@@ -2044,6 +2211,11 @@ function applyStatic(){
   // En celular el botón de Outlook Web no aporta: se oculta
   var owBtn = document.getElementById("outlookWebBtn");
   if(owBtn) owBtn.style.display = (isMobileDevice() && canShareFiles()) ? "none" : "";
+  // Con correo automático activo, los botones de envío manual no hacen falta
+  var auto = autoEmailOn();
+  ["t_bmail", "t_bmark"].forEach(function(id){ var el = document.getElementById(id); if(el) el.style.display = auto ? "none" : ""; });
+  if(owBtn && auto) owBtn.style.display = "none";
+  var ab = document.getElementById("autoMailBadge"); if(ab) ab.style.display = auto ? "" : "none";
 
   document.getElementById("lg_es").classList.toggle("on", lang==="es");
   document.getElementById("lg_en").classList.toggle("on", lang==="en");
@@ -2243,9 +2415,9 @@ function buildDriverMessage(ds, d){
 /* ============================ VERSIÓN ============================
    Cambiar APP_VERSION en cada entrega. La app revisa cada 5 minutos si hay
    una versión publicada más nueva y muestra un aviso para recargar. */
-var APP_VERSION = "2.8";
-var APP_VERSION_DATE = "29-09-2026 20:45";
-var APP_VERSION_NOTES = "Recuperación de bandejas por tipo de alvéolo · cultivos compartidos separados · cubicación";
+var APP_VERSION = "3.0";
+var APP_VERSION_DATE = "04-10-2026 15:30";
+var APP_VERSION_NOTES = "Correo automático de despachos · Google Maps · respaldo en Google Drive";
 function showVersion(){
   var v = document.getElementById("appVersion");
   if(v) v.textContent = "v" + APP_VERSION;
@@ -3114,7 +3286,14 @@ function addDispatch(){
     fields.updatedBy = currentUser;
     if(storageMode === "firebase"){
       var merged = Object.assign({}, ed.orig, fields, {id: ed.id});
-      FBApi.updateDocument("despachos", ed.id, fields).catch(function(err){
+      FBApi.updateDocument("despachos", ed.id, fields).then(function(){
+        var cambios = [];
+        if(ed.orig.date !== merged.date) cambios.push("Fecha: " + _fdate(ed.orig.date) + " → " + _fdate(merged.date));
+        if(+ed.orig.trays !== +merged.trays) cambios.push("Bandejas: " + ed.orig.trays + " → " + merged.trays);
+        if(String(ed.orig.farmerId) !== String(merged.farmerId)) cambios.push("Agricultor: " + (ed.orig.farmerName||"") + " → " + (merged.farmerName||""));
+        if(JSON.stringify(ed.orig.truckIds||[]) !== JSON.stringify(merged.truckIds||[])) cambios.push("Vehículo cambiado");
+        if(cambios.length) queueDispatchEmail("modificado", merged, {cambios: cambios.join(" · ")});
+      }).catch(function(err){
         alert("❌ Error guardando los cambios:\n" + err.message);
       });
       if(merged.driverToken){
@@ -3156,6 +3335,7 @@ function addDispatch(){
     delete toSave.id;
     FBApi.addDocument("despachos", toSave).then(function(docId){
       console.log("[FB] Despacho guardado con ID:", docId);
+      queueDispatchEmail("nuevo", Object.assign({}, newDispatch, {id: docId}));
     }).catch(function(err){
       alert("❌ Error guardando en Firebase:\n" + err.message);
       console.error(err);
@@ -3181,6 +3361,7 @@ function delDispatch(ds,id){
     FBApi.deleteDocument("despachos", id).then(function(){
       console.log("[FB] Despacho eliminado ✓");
       if(d.driverToken) deleteDriverData([d.driverToken]);
+      if(!d.finalizado && (d.date || ds) >= todayStr()) queueDispatchEmail("eliminado", Object.assign({date: ds}, d));
       // La subscription realtime actualizará automáticamente el state
     }).catch(function(err){
       console.error("[FB] Error eliminando despacho:", err);
@@ -3958,6 +4139,7 @@ function openFarmers(){document.getElementById("ovFarm").classList.add("show"); 
 function closeOv(id){document.getElementById(id).classList.remove("show"); if(selDate) renderPanel();}
 
 function renderFarmers(){
+  renderGeoProgress();
   var el = document.getElementById("farmList");
   if(!state.farmers.length){el.innerHTML='<div class="hint">'+L("fNone")+'</div>'; return;}
   var qEl = document.getElementById("farmSearch");
@@ -3973,7 +4155,8 @@ function renderFarmers(){
     var tv = travelMin(f);
     var hasLoc = !!mapsHref(f);
     return '<div class="farmrow"><div class="fn"><div class="nm">'+esc(f.name)
-      + (hasLoc ? ' <span title="Tiene ubicación" style="font-size:12px">📍</span>' : ' <span style="font-size:11px;color:var(--danger);font-weight:600">sin ubicación</span>')
+      + (hasLoc ? (f.geoAprox ? ' <span title="Ubicación aproximada (Google encontró solo la comuna o el camino)" style="font-size:11px;color:var(--warn);font-weight:600">📍 aprox.</span>' : ' <span title="Tiene ubicación" style="font-size:12px">📍</span>') : ' <span style="font-size:11px;color:var(--danger);font-weight:600">sin ubicación</span>')
+      + (+f.travelMinGoogle > 0 && f.routeDepot === depotKey() ? ' <span title="Tiempo real por carretera (Google)" style="font-size:11px;color:var(--ok);font-weight:600">🛣 ' + f.travelMinGoogle + ' min · ' + f.kmGoogle + ' km</span>' : '')
       + '</div>'
       + '<div class="ph">'+(f.phone?esc(f.phone):L("noPhone"))
       + (f.comuna?' · '+esc(f.comuna):'')
@@ -4008,7 +4191,8 @@ function renderFarmerForm(){
     + '<div class="row3"><div><label class="fl">'+L("fLat")+'</label><input id="ff_lat" value="'+(f.lat==null?"":f.lat)+'"></div>'
     + '<div><label class="fl">'+L("fLng")+'</label><input id="ff_lng" value="'+(f.lng==null?"":f.lng)+'"></div>'
     + '<div><label class="fl">'+L("fManual")+'</label><input id="ff_man" type="number" min="0" value="'+(f.manualTravelMin==null?"":f.manualTravelMin)+'"></div></div>'
-    + '<div class="btnrow"><button class="btn ghost" onclick="useGps()">'+gpsSvg()+L("fGps")+'</button>'
+    + '<div class="btnrow">' + (gKey() ? '<button class="btn ghost" onclick="geocodeFarmerForm()">🌎 Buscar dirección en Google</button>' : '')
+    + '<button class="btn ghost" onclick="useGps()">'+gpsSvg()+L("fGps")+'</button>'
     + '<button class="btn primary" style="flex:1" onclick="saveFarmer()">'+L("fSave")+'</button></div>'
     + '<div class="hint" id="ff_hint"></div>';
 }
@@ -4096,7 +4280,7 @@ function saveFarmer(){
       var fid = editingFarmerId;
       FBApi.updateDocument("agricultores", fid, rec).then(function(){
         // Actualiza en memoria también
-        var ff = farmerById(fid); if(ff) Object.assign(ff, rec);
+        var ff = farmerById(fid); if(ff){ Object.assign(ff, rec); ensureRoute(ff).catch(function(){}); }
         editingFarmerId = null;
         renderFarmers();
         renderFarmerForm();
@@ -4108,6 +4292,7 @@ function saveFarmer(){
       FBApi.addDocument("agricultores", rec).then(function(docId){
         rec.id = docId;
         state.farmers.push(rec);
+        ensureRoute(rec).catch(function(){});
         renderFarmers();
         renderFarmerForm();
       }).catch(function(err){
@@ -4177,6 +4362,22 @@ function renderConfig(){
           + (wds.indexOf(w[0])>=0?' checked':'') + '> '+w[1]+'</label>';
       }).join("")
     + '</div><div class="hint">Los días marcados quedan bloqueados todas las semanas. Para un feriado puntual usa "🚫 Bloquear día" en el calendario.</div>'
+    + '</div><div class="sec"><h4>🌎 Google Maps</h4>'
+    + '<label class="fl">Clave API de Google (Places API (New) + Routes API)</label>'
+    + '<div style="display:flex;gap:6px"><input id="cf_gkey" value="'+esc(c.googleApiKey||"")+'" placeholder="AIza…" style="flex:1"><button class="btn ghost sm" onclick="testGoogleKey()">Probar</button></div>'
+    + '<div class="hint" id="cf_gtest"></div>'
+    + '<label class="fl">Factor camión vs. auto (los camiones van más lento que lo que calcula Google)</label>'
+    + '<input id="cf_tfactor" type="number" min="1" max="2" step="0.05" value="'+truckFactor()+'">'
+    + '<div class="hint">Ej: 1.25 = el camión demora 25% más que un auto.</div>'
+    + '</div><div class="sec"><h4>☁️ Respaldo en Google Drive</h4>'
+    + '<label class="fl">URL del script de Google (Apps Script)</label>'
+    + '<input id="cf_gburl" value="'+esc(c.googleBackupUrl||"")+'" placeholder="https://script.google.com/macros/s/…/exec">'
+    + '<label class="fl">Clave del respaldo (la misma que pegas en el script)</label>'
+    + '<div style="display:flex;gap:6px"><input id="cf_gbtoken" value="'+esc(c.googleBackupToken||"")+'" style="flex:1"><button class="btn ghost sm" onclick="genBackupToken()">Generar</button></div>'
+    + '<div class="hint">Cada día, al entrar logística, se envía una copia a tu planilla y un respaldo completo a tu Drive.</div>'
+    + '<label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-weight:700;color:var(--navy)"><input type="checkbox" id="cf_automail"' + (c.autoEmail ? ' checked' : '') + ' style="width:auto;min-height:auto"> 📧 Correo automático de despachos</label>'
+    + '<div class="hint">Al agendar, modificar o eliminar un despacho, se avisa solo a: ' + esc(recipientsText()) + '. Usa el mismo script de Google (sin botón "Enviar pendientes").</div>'
+    + '</div><div class="sec"><h4>Capacidad diaria</h4>'
     + '<label class="fl">Máximo de bandejas por día (todos los camiones)</label>'
     + '<input id="cf_maxday" type="number" min="1" step="10" value="'+dayLimit()+'">'
     + '<label class="fl">Tiempo de viaje (ida) para agricultores sin ubicación, en minutos</label>'
@@ -4247,6 +4448,11 @@ function saveConfig(){
   c.vehiclesV2 = true;
   c.defaultTravelMin = +document.getElementById("cf_deftravel").value || 60;
   c.maxTraysPerDay = +document.getElementById("cf_maxday").value || 800;
+  var gk = document.getElementById("cf_gkey"); if(gk) c.googleApiKey = gk.value.trim();
+  var tf = document.getElementById("cf_tfactor"); if(tf) c.truckFactor = +tf.value || 1.25;
+  var gu = document.getElementById("cf_gburl"); if(gu) c.googleBackupUrl = gu.value.trim();
+  var gt = document.getElementById("cf_gbtoken"); if(gt) c.googleBackupToken = gt.value.trim();
+  var am = document.getElementById("cf_automail"); if(am) c.autoEmail = am.checked;
   state.calendar = state.calendar || {blocked:{}, weekdays:[]};
   state.calendar.weekdays = Array.prototype.map.call(document.querySelectorAll(".cf_wd:checked"), function(x){ return +x.value; });
   if(storageMode === "firebase" && FBApi.isAvailable()){
@@ -5090,8 +5296,113 @@ function maybeDailyBackup(){
     makeBackup("diario").then(function(id){
       try{ localStorage.setItem(key, hoy); }catch(e){}
       console.log("[Respaldo] Diario guardado:", id);
+      return sendGoogleBackup(false);
     }).catch(function(e){ console.warn("[Respaldo] No se pudo guardar:", e.message); });
   }, 8000);
+}
+/* ===================== RESPALDO EN GOOGLE DRIVE / SHEETS =====================
+   La app envía una copia a un script de Google (Apps Script) del usuario, que
+   actualiza una planilla y guarda el respaldo completo (JSON) en su Drive. */
+function gBackupUrl(){ return String((state.config && state.config.googleBackupUrl) || "").trim(); }
+function gBackupToken(){ return String((state.config && state.config.googleBackupToken) || "").trim(); }
+function _fdate(ds){ return ds ? String(ds).split("-").reverse().join("-") : ""; }
+function buildGoogleBackupPayload(){
+  var all = _allDispatchesFlat().sort(function(a,b){ return a.date < b.date ? -1 : 1; });
+  var vname = function(ids){ return !ids || !ids.length ? "Retira agricultor" : ids.map(function(id){ var t = truckById(id); return t ? t.name : id; }).join(" + "); };
+  var head = ["Fecha","Agricultor","Comuna","Teléfono","Bandejas","Alvéolos","Plantas","SPS","Contrato","Vehículo","Solicitó","Fieldman","Estado informe","Observaciones"];
+  var row = function(d){
+    var f = farmerById(d.farmerId) || {};
+    return [_fdate(d.date), d.farmerName || f.name || "", f.comuna || "", f.phone || d.phone || "", +d.trays || 0, dispAlveolos(d) || "",
+      +d.plants || 0, d.spsCode || "", d.contractNumber || "", vname(d.truckIds), d.user || "", d.fieldman || "", d.status === "sent" ? "Enviado" : "Pendiente", d.notes || ""];
+  };
+  var pend = [head].concat(all.filter(function(d){ return !d.finalizado; }).map(row));
+  var histHead = head.concat(["Entregadas","Recibió","Finalizado","Finalizado por"]);
+  var hist = [histHead].concat(all.filter(function(d){ return d.finalizado; }).map(function(d){
+    var e = entregaOf(d), t = (e && e.termino) || {};
+    return row(d).concat([d.bandejasEntregadas != null ? +d.bandejasEntregadas : (+t.bandejas || +d.trays || 0), t.recibio || "", fmtHoraCorta(d.finalizadoAt), d.finalizadoPor || ""]);
+  }));
+  var dev = [["Fecha","Agricultor","Bandejas","Alvéolos","Registró","Observaciones"]].concat((state.returns||[]).map(function(r){
+    var f = farmerById(r.farmerId) || {};
+    return [_fdate(r.date), f.name || "", +r.quantity || 0, +r.alveolos || "", r.user || "", r.notes || ""];
+  }));
+  var sal = [["Agricultor","Teléfono","Despachado","Devuelto","Saldo","Detalle por alvéolo","Último despacho"]].concat(
+    allFarmerBalances().filter(function(b){ return b.balance !== 0; }).sort(function(a,b){ return b.balance - a.balance; })
+      .map(function(b){ return [b.name, b.phone || "", b.dispatched, b.returned, b.balance, alvText(b.alv), _fdate(b.lastDispatch)]; }));
+  return {
+    token: gBackupToken(), fecha: todayStr(), hora: new Date().toLocaleTimeString("es-CL"), por: currentUser || "", version: APP_VERSION,
+    pendientes: pend, historial: hist, devoluciones: dev, saldos: sal,
+    raw: {despachos: all, devoluciones: state.returns || [], producciones: state.productions || []}
+  };
+}
+function sendGoogleBackup(manual){
+  var url = gBackupUrl();
+  if(!url){ if(manual) alert("Falta configurar el respaldo en Google (Configuración → Respaldo en Google Drive)."); return Promise.resolve(null); }
+  var body = JSON.stringify(buildGoogleBackupPayload());
+  return fetch(url, {method: "POST", headers: {"Content-Type": "text/plain;charset=utf-8"}, body: body, redirect: "follow"})
+    .then(function(r){ return r.text(); })
+    .then(function(t){
+      var j = {}; try{ j = JSON.parse(t); }catch(e){}
+      if(j.ok === false) throw new Error(j.error === "token" ? "La clave del script no coincide con la de la app" : (j.error || "Error del script"));
+      if(manual) alert("✅ Copia enviada a Google Drive" + (j.ok ? "\n\n" + (j.resumen || "") : "\n\n(Revisa la planilla para confirmar)"));
+      return true;
+    }).catch(function(e){
+      // Algunos navegadores bloquean leer la respuesta de Google aunque el script sí la recibió
+      if(e instanceof TypeError){
+        return fetch(url, {method: "POST", mode: "no-cors", headers: {"Content-Type": "text/plain;charset=utf-8"}, body: body}).then(function(){
+          if(manual) alert("📤 Copia enviada a Google Drive (revisa la planilla para confirmar).");
+          return true;
+        });
+      }
+      if(manual) alert("❌ No se pudo copiar a Google: " + e.message);
+      console.warn("[Google respaldo]", e.message);
+      return false;
+    });
+}
+/* ===================== CORREO AUTOMÁTICO =====================
+   Cada despacho nuevo / modificado / eliminado se avisa al script de Google, que
+   junta los avisos y envía un correo (con Excel) a los 4 destinatarios. */
+function autoEmailOn(){ return !!(state.config && state.config.autoEmail && gBackupUrl() && gBackupToken()); }
+function _despachoParaCorreo(d){
+  var f = farmerById(d.farmerId) || {};
+  var ids = d.truckIds || [];
+  return {
+    id: d.id || "", fecha: _fdate(d.date), agricultor: d.farmerName || f.name || "", comuna: f.comuna || "",
+    direccion: f.address || d.address || "", telefono: f.phone || d.phone || "",
+    bandejas: +d.trays || 0, alveolos: dispAlveolos(d) || "", plantas: +d.plants || 0,
+    sps: d.spsCode || "", contrato: d.contractNumber || "",
+    vehiculo: !ids.length ? "Retira agricultor" : ids.map(function(id){ var t = truckById(id); return t ? t.name : id; }).join(" + "),
+    solicito: d.user || currentUser || "", correoSolicitante: corporateEmail(d.user || currentUser) || "",
+    fieldman: d.fieldman || "", obs: d.notes || ""
+  };
+}
+function queueDispatchEmail(tipo, d, extra){
+  if(!autoEmailOn() || !d) return Promise.resolve(false);
+  var body = JSON.stringify({token: gBackupToken(), action: "cola", tipo: tipo, por: currentUser || "",
+    despacho: _despachoParaCorreo(d), extra: extra || {}, destinatarios: requestRecipients()});
+  var url = gBackupUrl();
+  var marcar = function(){
+    // El despacho queda informado: ya no aparece como "pendiente de enviar"
+    if(tipo !== "eliminado" && d.id && storageMode === "firebase" && FBApi.isAvailable()){
+      FBApi.updateDocument("despachos", d.id, {status: "sent", sentAt: new Date().toISOString(), autoInformado: true}).catch(function(){});
+    }
+    return true;
+  };
+  return fetch(url, {method: "POST", headers: {"Content-Type": "text/plain;charset=utf-8"}, body: body})
+    .then(function(r){ return r.text(); }).then(function(t){
+      var j = {}; try{ j = JSON.parse(t); }catch(e){}
+      if(j.ok === false) throw new Error(j.error || "script");
+      return marcar();
+    }).catch(function(e){
+      if(e instanceof TypeError){
+        return fetch(url, {method: "POST", mode: "no-cors", headers: {"Content-Type": "text/plain;charset=utf-8"}, body: body}).then(marcar);
+      }
+      console.warn("[Correo automático]", e.message);
+      return false;
+    });
+}
+function genBackupToken(){
+  var el = document.getElementById("cf_gbtoken");
+  if(el) el.value = "SPS-" + newDriverToken().slice(0, 16);
 }
 function listBackups(){
   var col = window.FB.collection(window.FB.db, "respaldos");
@@ -5208,7 +5519,8 @@ function renderCleanupPanel(){
 
   var html = ''
     + '<div style="border:1px solid #bfe3cc;background:#effaf3;border-radius:10px;padding:12px 14px;margin-bottom:14px">'
-    + '<div style="font-weight:700;color:#1f5c3b;margin-bottom:6px">🛟 Respaldos (para deshacer)</div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px"><div style="font-weight:700;color:#1f5c3b">🛟 Respaldos (para deshacer)</div>'
+    + '<button class="btn ghost sm" onclick="sendGoogleBackup(true)">☁️ Copiar ahora a Google Drive</button></div>'
     + '<div id="backupsBox"></div></div>'
     + '<p style="font-size:13px;color:var(--muted);margin-bottom:16px">'
     + 'Marca solo lo que quieras eliminar. Lo que no marques queda intacto. '
