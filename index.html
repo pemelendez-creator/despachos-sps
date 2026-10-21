@@ -2412,12 +2412,77 @@ function buildDriverMessage(ds, d){
   return L1.join("\n");
 }
 
+/* ===== Mensaje para INVERNADERO (encargada de carga): qué preparar, de qué contrato y en qué vehículo ===== */
+var _numEmoji = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"];
+function _vehiculoTxt(d){
+  if(d.retiroAgricultor) return "Retira agricultor";
+  return (d.truckIds||[]).map(function(id){ var t = truckById(id); return t ? t.name : id; }).join(" + ") || "Sin vehículo";
+}
+function _cargaLines(d, n){
+  var f = farmerById(d.farmerId) || {name: d.farmerName || "—"};
+  var pr = d.productionId ? getProductionById(d.productionId) : null;
+  var alv = dispAlveolos(d);
+  var plantas = +d.plants || (pr ? Math.round((+d.trays || 0) * plantasPorBandejaReal(pr)) : 0);
+  var L = [];
+  L.push((n != null ? (_numEmoji[n] || (n + 1) + ".") + " " : "") + "*" + (d.spsCode || (pr && pr.spsCode) || "SPS —") + "* · Contrato " + (d.contractNumber || (pr && pr.contrato) || "—"));
+  var esp = [pr && pr.especie, pr && pr.variedad, alv ? alv + " alv." : ""].filter(Boolean).join(" · ");
+  if(esp) L.push("   🌿 " + esp);
+  L.push("   📦 *" + fmtNum(d.trays) + " bandejas*" + (plantas ? " · " + fmtNum(plantas) + " plantas" : ""));
+  L.push("   🌾 Destino: " + (f.name || "—") + (f.comuna ? " (" + f.comuna + ")" : ""));
+  if(d.user) L.push("   👤 Solicitó: " + d.user);
+  if(d.notes) L.push("   📝 " + d.notes);
+  return L;
+}
+function buildGreenhouseMessage(ds, d){
+  var L = ["🌱 *CARGA INVERNADERO · SPS CHILE*", "📅 " + dayLong(ds), "🚛 " + _vehiculoTxt(d), ""];
+  return L.concat(_cargaLines(d, null)).join("\n");
+}
+function buildGreenhouseDayMessage(ds){
+  var arr = (state.dispatches[ds] || []).filter(function(d){ return !d.finalizado; });
+  var grupos = {}, orden = [];
+  arr.forEach(function(d){
+    var k = _vehiculoTxt(d);
+    if(!grupos[k]){ grupos[k] = []; orden.push(k); }
+    grupos[k].push(d);
+  });
+  var L = ["🌱 *CARGA INVERNADERO · SPS CHILE*", "📅 " + dayLong(ds)];
+  var tot = 0;
+  orden.forEach(function(k){
+    var g = grupos[k], tb = g.reduce(function(s,d){ return s + (+d.trays || 0); }, 0);
+    tot += tb;
+    L.push("━━━━━━━━━━━━━━");
+    L.push((k === "Retira agricultor" ? "🧑‍🌾 " : "🚛 ") + "*" + k + "* · " + g.length + (g.length === 1 ? " carga" : " cargas") + " · " + fmtNum(tb) + " bandejas");
+    g.forEach(function(d, i){ L.push(""); L = L.concat(_cargaLines(d, i)); });
+  });
+  L.push("━━━━━━━━━━━━━━");
+  L.push("📊 *Total del día: " + fmtNum(tot) + " bandejas* · " + arr.length + (arr.length === 1 ? " despacho" : " despachos"));
+  return L.join("\n");
+}
+function _shareText(msg){
+  if(isMobileDevice() && typeof navigator.share === "function"){
+    navigator.share({text: msg}).catch(function(err){ if(err && err.name === "AbortError") return; openWhatsAppWithText(msg); });
+    return;
+  }
+  try{ if(navigator.clipboard) navigator.clipboard.writeText(msg).catch(function(){}); }catch(e){}
+  openWhatsAppWithText(msg);
+}
+function shareGreenhouseWhatsApp(ds, id){
+  if(!canShareToDriver()){ alert("Solo la cuenta de logística puede compartir con invernadero."); return; }
+  var d = (state.dispatches[ds]||[]).filter(function(x){ return x.id === id; })[0];
+  if(d) _shareText(buildGreenhouseMessage(ds, d));
+}
+function shareGreenhouseDay(ds){
+  if(!canShareToDriver()){ alert("Solo la cuenta de logística puede compartir con invernadero."); return; }
+  if(!(state.dispatches[ds]||[]).some(function(d){ return !d.finalizado; })){ alert("No hay despachos pendientes este día."); return; }
+  _shareText(buildGreenhouseDayMessage(ds));
+}
+
 /* ============================ VERSIÓN ============================
    Cambiar APP_VERSION en cada entrega. La app revisa cada 5 minutos si hay
    una versión publicada más nueva y muestra un aviso para recargar. */
-var APP_VERSION = "3.2";
-var APP_VERSION_DATE = "21-10-2026 13:15";
-var APP_VERSION_NOTES = "Excel de despachos solicitados y sin solicitar · aviso de SPS con varios contratos";
+var APP_VERSION = "3.3";
+var APP_VERSION_DATE = "21-10-2026 13:45";
+var APP_VERSION_NOTES = "WhatsApp para invernadero (por despacho y carga del día) · Excel solicitados / sin solicitar";
 function showVersion(){
   var v = document.getElementById("appVersion");
   if(v) v.textContent = "v" + APP_VERSION;
@@ -2828,6 +2893,9 @@ function renderDay(ds){
     html += '<details class="findone"><summary>✅ Finalizados este día (' + finalizados.length + ') · ' + fmtNum(dayTrays(finalizados)) + ' bandejas</summary>'
       + finalizados.map(function(d){ return histRowHtml(d, ds, true); }).join("") + '</details>';
   }
+  if(activos.length && canShareToDriver()){
+    html += '<button class="btn ghost sm" style="margin:0 0 10px;color:#128C7E;border-color:#9fd8cc" onclick="shareGreenhouseDay(\''+ds+'\')">'+waSvg()+'Enviar carga del día a invernadero (' + activos.length + ')</button>';
+  }
   if(activos.length){
     html += '<div class="dlist">';
     activos.forEach(function(d){
@@ -2862,6 +2930,7 @@ function renderDay(ds){
         + (href?'<a href="'+esc(href)+'" target="_blank" rel="noopener">'+pinSvg()+L("openMaps")+'</a>':'')
         + (!href && canShareToDriver() && farmerById(d.farmerId) ? '<a href="#" style="color:var(--danger)" onclick="editFarmerLocation(\''+d.farmerId+'\');return false;">'+pinSvg()+'Agregar ubicación</a>' : '')
         + (canShareToDriver() ? '<a href="#" class="wa-share" onclick="shareDispatchWhatsApp(\''+ds+'\',\''+d.id+'\');return false;">'+waSvg()+'WhatsApp conductor</a>' : '')
+        + (canShareToDriver() ? '<a href="#" class="wa-share" onclick="shareGreenhouseWhatsApp(\''+ds+'\',\''+d.id+'\');return false;">'+waSvg()+'WhatsApp invernadero</a>' : '')
         + (canEditDispatch(d) ? '<span class="acts">'
             + (isAdmin() ? '<button class="btn success sm" onclick="finalizeDispatch(\''+ds+'\',\''+d.id+'\')">✅ Finalizar</button>' : '')
             + '<button class="btn ghost sm" onclick="reagendar(\''+ds+'\',\''+d.id+'\')">📅 Reagendar</button>'
