@@ -2415,9 +2415,9 @@ function buildDriverMessage(ds, d){
 /* ============================ VERSIÓN ============================
    Cambiar APP_VERSION en cada entrega. La app revisa cada 5 minutos si hay
    una versión publicada más nueva y muestra un aviso para recargar. */
-var APP_VERSION = "3.0";
-var APP_VERSION_DATE = "04-10-2026 15:30";
-var APP_VERSION_NOTES = "Correo automático de despachos · Google Maps · respaldo en Google Drive";
+var APP_VERSION = "3.2";
+var APP_VERSION_DATE = "21-10-2026 13:15";
+var APP_VERSION_NOTES = "Excel de despachos solicitados y sin solicitar · aviso de SPS con varios contratos";
 function showVersion(){
   var v = document.getElementById("appVersion");
   if(v) v.textContent = "v" + APP_VERSION;
@@ -6670,6 +6670,11 @@ function processGreenhouseWorkbook(wb, filename){
       + (brokenProds.filter(function(b){return !b.split;}).length ? "  🔧 " + brokenProds.filter(function(b){return !b.split;}).length + " producciones mal leídas en cargas anteriores fueron corregidas\n" : "")
       + "  📅 Temporada: " + state.season
       + syncStatus;
+    var multi = spsMultiContrato();
+    if(multi.length){
+      msg += "\n\n⚠ SPS con más de un contrato (revise que no estén duplicados y que cuadren con el programa):\n  "
+        + multi.slice(0, 10).join("\n  ") + (multi.length > 10 ? "\n  ...y " + (multi.length - 10) + " más" : "");
+    }
 
     // Detecta FMs sin mapear
     var unmapped = getUnmappedFMs();
@@ -6766,6 +6771,124 @@ function parseExcelDate(v){
 }
 
 /* ---------- Export: escribir el Excel maestro con datos actualizados ---------- */
+
+/* Descarga un archivo generado en el navegador */
+function downloadBlob(blob, filename){
+  var url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+}
+
+/* ===== Excel: producciones con despachos SOLICITADOS y lo que aún NO se solicita ===== */
+function exportSolicitudesReport(){
+  if(typeof ExcelJS === "undefined"){ alert("ExcelJS no está disponible. No se puede generar el Excel."); return; }
+  var prods = getVisibleProductions().filter(function(p){ return !p.season || p.season === state.season; });
+  if(!prods.length){ alert("No hay producciones cargadas en esta temporada."); return; }
+  var hoy = todayStr();
+  var porProd = {}, sinEnlace = [];
+  var prodIds = {}; prods.forEach(function(p){ prodIds[p.id] = 1; });
+  Object.keys(state.dispatches || {}).forEach(function(ds){
+    (state.dispatches[ds] || []).forEach(function(d){
+      var r = Object.assign({_date: d.date || ds}, d);
+      if(d.productionId && prodIds[d.productionId]) (porProd[d.productionId] = porProd[d.productionId] || []).push(r);
+      else if(!d.productionId && isAdmin()) sinEnlace.push(r);
+    });
+  });
+  var fmUser = function(fm){ return splitFMCodes(fm).map(function(c){ return state.fmMapping[c] || c; }).join(" + "); };
+  var estadoTxt = {red: "VENCIDA", yellow: "PASÓ ÓPTIMA", green: "EN VENTANA"};
+  var filas = prods.map(function(p){
+    var snap = getProductionSnapshot(p), ds = (porProd[p.id] || []).sort(function(a,b){ return a._date.localeCompare(b._date); });
+    var entregadas = 0, porEntregar = 0, prox = "";
+    ds.forEach(function(d){
+      if(d.finalizado) entregadas += (+d.trays || 0);
+      else { porEntregar += (+d.trays || 0); if(!prox && d._date >= hoy) prox = d._date; }
+    });
+    var sembradas = +p.bandejasSembradas || 0, solicitadas = entregadas + porEntregar;
+    var sin = Math.max(0, sembradas - solicitadas);
+    var sit = solicitadas === 0 ? "SIN SOLICITAR" : (sin > 0 ? "PARCIAL" : "COMPLETO");
+    return {p: p, snap: snap, ds: ds, entregadas: entregadas, porEntregar: porEntregar, solicitadas: solicitadas, sin: sin, sit: sit, prox: prox, sembradas: sembradas};
+  }).sort(function(a,b){
+    var o = {"SIN SOLICITAR": 0, "PARCIAL": 1, "COMPLETO": 2};
+    if(o[a.sit] !== o[b.sit]) return o[a.sit] - o[b.sit];
+    return (a.snap.fechaMaxima || 0) - (b.snap.fechaMaxima || 0);
+  });
+
+  var wb = new ExcelJS.Workbook();
+  wb.creator = "SPS Chile - App Despacho Bandejas"; wb.created = new Date();
+  var NAVY = "FF14366E";
+  function hoja(nombre, cols){
+    var ws = wb.addWorksheet(nombre, {views: [{state: "frozen", ySplit: 1}]});
+    ws.columns = cols.map(function(c){ return {header: c[0], key: c[1], width: c[2], style: c[3] ? {numFmt: c[3]} : {}}; });
+    var h = ws.getRow(1); h.height = 32;
+    h.eachCell(function(cell){
+      cell.fill = {type: "pattern", pattern: "solid", fgColor: {argb: NAVY}};
+      cell.font = {name: "Arial", size: 10, bold: true, color: {argb: "FFFFFFFF"}};
+      cell.alignment = {vertical: "middle", horizontal: "center", wrapText: true};
+    });
+    ws.autoFilter = {from: {row: 1, column: 1}, to: {row: 1, column: cols.length}};
+    return ws;
+  }
+  function pintar(row, argb){ row.eachCell({includeEmpty: true}, function(c){ c.fill = {type: "pattern", pattern: "solid", fgColor: {argb: argb}}; }); }
+  var d2 = function(ymd){ return ymd ? localDateFromYMD(ymd) : null; };
+  var F = "dd-mm-yyyy", N = "#,##0", P = "0%";
+
+  // 1) Resumen por contrato
+  var ws1 = hoja("Resumen por contrato", [
+    ["Situación","sit",15],["FM","fm",9],["Fieldman","fman",22],["SPS","sps",11],["Especie","esp",16],["Contrato","con",10],
+    ["Alvéolos","alv",9],["Siembra","sie",11,F],["Fecha óptima","opt",11,F],["Fecha máxima","max",11,F],["Estado invernadero","est",14],
+    ["Bandejas sembradas","sem",11,N],["Solicitadas por entregar","pe",12,N],["Entregadas","ent",11,N],["Total solicitadas","sol",11,N],
+    ["SIN SOLICITAR","sin",11,N],["% solicitado","pct",10,P],["Próximo despacho","prox",12,F],["N° despachos","nd",9]
+  ]);
+  filas.forEach(function(f){
+    var p = f.p;
+    var row = ws1.addRow({sit: f.sit, fm: p.fm, fman: fmUser(p.fm), sps: p.spsCode, esp: p.especie, con: p.contrato, alv: +p.alveolos || null,
+      sie: d2(p.fechaSiembra), opt: f.snap.fechaOptima || null, max: f.snap.fechaMaxima || null, est: estadoTxt[f.snap.status] || "",
+      sem: f.sembradas, pe: f.porEntregar, ent: f.entregadas, sol: f.solicitadas, sin: f.sin,
+      pct: f.sembradas ? f.solicitadas / f.sembradas : 0, prox: d2(f.prox), nd: f.ds.length});
+    if(f.sit === "SIN SOLICITAR") pintar(row, f.snap.status === "green" ? "FFFFF4E2" : "FFFBE9E7");
+    else if(f.sit === "PARCIAL") pintar(row, "FFFFFBEA");
+    else pintar(row, "FFE6F3EC");
+    row.getCell("sin").font = {bold: true, color: {argb: f.sin > 0 ? "FFB3261E" : "FF2E7D52"}};
+  });
+  var tot = filas.reduce(function(t,f){ t.sem += f.sembradas; t.pe += f.porEntregar; t.ent += f.entregadas; t.sol += f.solicitadas; t.sin += f.sin; return t; }, {sem:0,pe:0,ent:0,sol:0,sin:0});
+  var tr = ws1.addRow({sit: "TOTAL", sem: tot.sem, pe: tot.pe, ent: tot.ent, sol: tot.sol, sin: tot.sin, pct: tot.sem ? tot.sol / tot.sem : 0});
+  tr.font = {bold: true}; pintar(tr, "FFE8EFF8");
+
+  // 2) Despachos solicitados (detalle)
+  var ws2 = hoja("Despachos solicitados", [
+    ["Fecha despacho","fec",12,F],["Estado","est",14],["Agricultor","agr",34],["Comuna","com",18],["SPS","sps",11],["Contrato","con",10],
+    ["Bandejas","ban",10,N],["Bandejas entregadas","bent",11,N],["Vehículo","veh",16],["Solicitó","sol",22],["Fieldman producción","fm",22]
+  ]);
+  var det = [];
+  filas.forEach(function(f){ f.ds.forEach(function(d){ det.push({d: d, p: f.p}); }); });
+  sinEnlace.forEach(function(d){ det.push({d: d, p: null}); });
+  det.sort(function(a,b){ return a.d._date.localeCompare(b.d._date); });
+  det.forEach(function(x){
+    var d = x.d, fa = farmerById(d.farmerId) || {};
+    var veh = d.retiroAgricultor ? "Retira agricultor" : (d.truckIds || []).map(function(id){ var t = (state.config.trucks || []).filter(function(t){ return t.id === id; })[0]; return t ? t.name : id; }).join(" + ");
+    var row = ws2.addRow({fec: d2(d._date), est: d.finalizado ? "ENTREGADO" : (d._date < hoy ? "PENDIENTE (atrasado)" : "PROGRAMADO"),
+      agr: d.farmerName || fa.name || "", com: fa.comuna || "", sps: x.p ? x.p.spsCode : (d.spsCode || ""), con: x.p ? x.p.contrato : (d.contractNumber || ""),
+      ban: +d.trays || 0, bent: d.finalizado ? (+d.bandejasEntregadas || +d.trays || 0) : null, veh: veh, sol: d.user || "", fm: x.p ? fmUser(x.p.fm) : "(sin producción enlazada)"});
+    if(d.finalizado) pintar(row, "FFE6F3EC");
+  });
+
+  // 3) Solo lo que falta por solicitar
+  var ws3 = hoja("Sin solicitar", [
+    ["Fieldman","fman",22],["SPS","sps",11],["Especie","esp",16],["Contrato","con",10],["Fecha óptima","opt",11,F],["Fecha máxima","max",11,F],
+    ["Estado invernadero","est",14],["Bandejas sembradas","sem",11,N],["Ya solicitadas","sol",11,N],["SIN SOLICITAR","sin",11,N],["Plantas aprox. sin solicitar","pl",14,N]
+  ]);
+  filas.filter(function(f){ return f.sin > 0; }).sort(function(a,b){ return (a.snap.fechaMaxima || 0) - (b.snap.fechaMaxima || 0); }).forEach(function(f){
+    var row = ws3.addRow({fman: fmUser(f.p.fm), sps: f.p.spsCode, esp: f.p.especie, con: f.p.contrato, opt: f.snap.fechaOptima || null, max: f.snap.fechaMaxima || null,
+      est: estadoTxt[f.snap.status] || "", sem: f.sembradas, sol: f.solicitadas, sin: f.sin, pl: Math.round(f.sin * plantasPorBandejaReal(f.p))});
+    if(f.snap.status === "red") pintar(row, "FFFBE9E7"); else if(f.snap.status === "yellow") pintar(row, "FFFFF4E2");
+    row.getCell("sin").font = {bold: true, color: {argb: "FFB3261E"}};
+  });
+
+  var nombre = "SOLICITUDES_DESPACHO_" + state.season + "_" + todayStrDDMMYYYY() + ".xlsx";
+  wb.xlsx.writeBuffer().then(function(buffer){
+    downloadBlob(new Blob([buffer], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), nombre);
+  }).catch(function(err){ console.error(err); alert("Error generando Excel: " + err.message); });
+}
 
 function exportGreenhouseReport(){
   if(!state.productions.length){
@@ -6920,6 +7043,7 @@ function renderInventory(){
     + '  <button class="btn primary sm" onclick="openGreenhouseImport()">📥 Importar reporte</button>'
     + '  <input type="file" id="impGreenhouse" accept=".xlsx,.xls" style="display:none" onchange="handleGreenhouseImport(event)">'
     + '  <button class="btn success sm" onclick="exportGreenhouseReport()">📤 Exportar reporte actualizado</button>'
+    + '  <button class="btn success sm" onclick="exportSolicitudesReport()">📊 Excel solicitados / sin solicitar</button>'
     + (isAdmin() ? '  <button class="btn ghost sm" onclick="openFMMapping()">👥 Mapeo FM → Usuario</button>' : '')
     + (isAdmin() ? '  <button class="btn ghost sm" onclick="openSeasonManager()">📅 Cambiar temporada</button>' : '')
     + '</div>';
@@ -7013,11 +7137,103 @@ function renderProductionCard(p){
     + '    <div>Plantas totales: <strong>' + fmtNum(s.plantasTotales) + '</strong></div>'
     + '  </div>'
     + (p.observaciones ? '<div style="margin-top:8px;padding:6px 10px;background:rgba(255,255,255,.6);border-radius:6px;font-size:12px;font-style:italic">💬 ' + esc(p.observaciones) + '</div>' : '')
+    + programaHtml(p)
     + '  <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">'
     + '    <button class="btn ghost sm" onclick="editProduction(\'' + p.id + '\')">✎ Editar germinación / plantas</button>'
+    + '    <button class="btn ghost sm" onclick="editProgramaSPS(\'' + p.id + '\')">📋 Programa (HA)</button>'
     + (isAdmin() ? '    <button class="btn danger sm" onclick="deleteProduction(\'' + p.id + '\')">Eliminar</button>' : '')
     + '  </div>'
     + '</div>';
+}
+
+/* ===== Mismo SPS en varios contratos + control contra el programa (HA × plantas/HA) ===== */
+function _spsKey(c){ return String(c || "").trim().toUpperCase(); }
+function spsGroup(p){
+  var k = _spsKey(p.spsCode);
+  if(!k) return [p];
+  return state.productions.filter(function(x){ return _spsKey(x.spsCode) === k; })
+    .sort(function(a,b){ return String(a.contrato).localeCompare(String(b.contrato)); });
+}
+/* Programa del SPS: lo ingresado en Inventario; si no, lo que el fieldman puso en sus despachos */
+function programaSPS(code){
+  var k = _spsKey(code), sup = 0, pha = 0, origen = "";
+  state.productions.forEach(function(x){
+    if(_spsKey(x.spsCode) === k && +x.supPrograma > 0 && +x.plantasHaPrograma > 0 && !sup){ sup = +x.supPrograma; pha = +x.plantasHaPrograma; origen = "inventario"; }
+  });
+  if(!sup){
+    Object.keys(state.dispatches || {}).forEach(function(ds){
+      (state.dispatches[ds] || []).forEach(function(d){
+        if(_spsKey(d.spsCode) === k && +d.superficieHa > 0 && +d.plantasPorHa > 0 && !sup){ sup = +d.superficieHa; pha = +d.plantasPorHa; origen = "despacho"; }
+      });
+    });
+  }
+  return sup ? {sup: sup, pha: pha, origen: origen} : null;
+}
+function programCheck(p){
+  var grupo = spsGroup(p), prog = programaSPS(p.spsCode);
+  var sembradas = grupo.reduce(function(s,x){ return s + (+x.bandejasSembradas || 0); }, 0);
+  var plantasLogradas = grupo.reduce(function(s,x){ return s + (plantasPorBandejaReal(x) * (+x.bandejasSembradas || 0)); }, 0);
+  var r = {grupo: grupo, sembradas: sembradas, prog: prog};
+  if(prog){
+    var ppb = sembradas > 0 ? plantasLogradas / sembradas : 0;
+    r.plantasNec = Math.round(prog.sup * prog.pha);
+    r.bandejasNec = ppb > 0 ? Math.ceil(r.plantasNec / ppb) : 0;
+    r.diff = sembradas - r.bandejasNec;
+    r.pct = r.bandejasNec > 0 ? Math.round(r.diff * 100 / r.bandejasNec) : 0;
+  }
+  return r;
+}
+function _nContratos(arr){ var u = {}; arr.forEach(function(x){ u[String(x.contrato)] = 1; }); return Object.keys(u).length; }
+function programaHtml(p){
+  var c = programCheck(p), h = "", nC = _nContratos(c.grupo);
+  if(nC > 1){
+    h += '<div style="margin-top:8px;padding:6px 10px;background:#fff8e1;border:1px solid #f0d9ab;border-radius:6px;font-size:12px;color:#7a4b00">'
+      + '⚠ <strong>Mismo SPS en ' + nC + ' contratos</strong> ('
+      + c.grupo.map(function(x){ return esc(x.contrato) + (c.grupo.length > nC ? " " + esc(x.fm) : "") + ": " + fmtNum(x.bandejasSembradas) + " band."; }).join(" · ")
+      + ') → <strong>' + fmtNum(c.sembradas) + ' bandejas sembradas en total</strong></div>';
+  }
+  if(c.prog){
+    var malo = Math.abs(c.pct) > 15;
+    var col = malo ? "#b3261e" : "#2e7d52";
+    var txt = c.diff > 0 ? "sobran " + fmtNum(c.diff) : (c.diff < 0 ? "faltan " + fmtNum(-c.diff) : "cuadra");
+    h += '<div style="margin-top:6px;padding:6px 10px;background:rgba(255,255,255,.7);border:1px solid ' + (malo ? "#f2c7c1" : "#bfe0cd") + ';border-radius:6px;font-size:12px">'
+      + '📋 Programa: <strong>' + String(c.prog.sup).replace(".", ",") + ' HA × ' + fmtNum(c.prog.pha) + ' pl/HA = ' + fmtNum(c.plantasNec) + ' plantas</strong>'
+      + ' ≈ ' + fmtNum(c.bandejasNec) + ' bandejas · sembradas ' + fmtNum(c.sembradas)
+      + ' → <strong style="color:' + col + '">' + (malo ? "⚠ " : "✓ ") + txt + (c.diff ? ' (' + (c.pct > 0 ? "+" : "") + c.pct + '%)' : '') + '</strong>'
+      + (c.prog.origen === "despacho" ? ' <span style="color:var(--muted)">(dato del despacho)</span>' : '')
+      + '</div>';
+  }
+  return h;
+}
+function editProgramaSPS(id){
+  var p = getProductionById(id); if(!p) return;
+  var prog = programaSPS(p.spsCode) || {};
+  var sup = prompt("Programa de " + p.spsCode + "\n\nSuperficie programada (HA):", prog.sup ? String(prog.sup).replace(".", ",") : "");
+  if(sup === null) return;
+  sup = parseFloat(String(sup).replace(",", "."));
+  if(isNaN(sup) || sup < 0){ alert("Ingrese un número válido (ej: 2,5)."); return; }
+  var pha = prompt("Plantas por HA del programa:", prog.pha || "");
+  if(pha === null) return;
+  pha = parseInt(String(pha).replace(/\./g, ""), 10);
+  if(isNaN(pha) || pha < 0){ alert("Ingrese un número entero (ej: 45000)."); return; }
+  spsGroup(p).forEach(function(x){
+    x.supPrograma = sup; x.plantasHaPrograma = pha;
+    if(storageMode === "firebase" && typeof FBApi !== "undefined" && FBApi.isAvailable()){
+      FBApi.updateDocument("producciones", x.id, {supPrograma: sup, plantasHaPrograma: pha, updatedAt: new Date().toISOString()})
+        .catch(function(e){ console.warn("[FB] Programa:", e.message); });
+    }
+  });
+  saveState();
+  renderInventory();
+}
+/* SPS con más de un contrato (para avisar al importar) */
+function spsMultiContrato(){
+  var m = {};
+  state.productions.forEach(function(x){ var k = _spsKey(x.spsCode); if(k){ (m[k] = m[k] || []).push(x); } });
+  return Object.keys(m).filter(function(k){ return _nContratos(m[k]) > 1; }).map(function(k){
+    var tot = m[k].reduce(function(s,x){ return s + (+x.bandejasSembradas || 0); }, 0);
+    return k + " (" + Object.keys(m[k].reduce(function(o,x){ o[x.contrato] = 1; return o; }, {})).join(" + ") + ": " + fmtNum(tot) + " bandejas)";
+  });
 }
 
 function editProduction(id){
