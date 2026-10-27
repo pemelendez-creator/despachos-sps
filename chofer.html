@@ -7,6 +7,12 @@
 <meta name="robots" content="noindex, nofollow">
 <title>Despacho SPS · Chofer</title>
 <link rel="icon" href="icon-192.png">
+<script>
+  // Guarda la página en el teléfono para poder abrirla sin señal
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.register("chofer-sw.js", {scope: "./chofer.html"}).catch(function(){});
+  }
+</script>
 <style>
   :root{
     --navy:#14366E; --navy-dark:#0f2a55; --blue:#1F5BA6; --ink:#1b2430; --muted:#5b6b7c;
@@ -57,12 +63,15 @@
   .cam .side{background:transparent;border:1px solid #fff;color:#fff;border-radius:10px;padding:10px 14px;font-size:15px;font-weight:700;min-width:96px}
   .cam .tip{position:absolute;top:0;left:0;right:0;padding:12px;color:#fff;text-align:center;font-weight:700;background:rgba(0,0,0,.45)}
   .center{text-align:center;color:var(--muted);padding:40px 10px}
+  .net{position:sticky;top:0;z-index:20;background:#5b3a00;color:#fff;font-size:14px;font-weight:700;padding:9px 14px;text-align:center}
+  .net.sync{background:#1F5BA6}
+  .pend{display:inline-block;background:var(--warn-soft);color:var(--warn);border:1px solid #f0d9ab;border-radius:8px;padding:6px 10px;font-size:13px;font-weight:700;margin-top:8px}
 </style>
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import {
-    initializeFirestore, persistentLocalCache, doc, getDoc, setDoc, updateDoc, serverTimestamp
+    initializeFirestore, persistentLocalCache, doc, getDoc, getDocFromServer, setDoc, updateDoc, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -82,7 +91,7 @@
   }catch(e){
     db = initializeFirestore(app, {});
   }
-  window.FBC = { db, doc, getDoc, setDoc, updateDoc, serverTimestamp };
+  window.FBC = { db, doc, getDoc, getDocFromServer, setDoc, updateDoc, serverTimestamp };
   window.dispatchEvent(new Event("fbc-ready"));
 </script>
 </head>
@@ -94,6 +103,7 @@
     <p>South Pacific Seeds Chile · Chofer</p>
   </div>
 </header>
+<div class="net hidden" id="netBar"></div>
 <main id="main">
   <div class="center" id="loading">Cargando despacho…</div>
 </main>
@@ -128,24 +138,129 @@
     main.innerHTML = '<div class="card center"><div style="font-size:44px">⚠️</div><p>' + esc(msg) + '</p></div>';
   }
 
+  /* ===== Copia local del despacho y cola de envíos (funciona sin señal) ===== */
+  var KEY_E = "sps_entrega_" + token, KEY_Q = "sps_outbox_" + token;
+  function jget(k){ try{ return JSON.parse(localStorage.getItem(k) || "null"); }catch(e){ return null; } }
+  function jset(k, v){ try{ if(v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  function outbox(){ return jget(KEY_Q) || {}; }
+  function pendientes(){ var q = outbox(); return ["inicio","termino"].filter(function(e){ return q[e]; }); }
+  function guardarLocal(){ if(entrega) jset(KEY_E, entrega); }
+  function withTimeout(p, ms){ return Promise.race([p, new Promise(function(_, rej){ setTimeout(function(){ rej(new Error("timeout")); }, ms); })]); }
+
+  function netBar(){
+    var bar = document.getElementById("netBar"); if(!bar) return;
+    var pend = pendientes();
+    if(!navigator.onLine){
+      bar.className = "net"; bar.textContent = "📵 Sin señal · puedes registrar igual: se enviará solo cuando vuelva la señal";
+    } else if(pend.length){
+      bar.className = "net sync"; bar.textContent = "📶 Enviando lo registrado sin señal…";
+    } else { bar.className = "net hidden"; }
+  }
+  window.addEventListener("online", function(){ netBar(); flush(); });
+  window.addEventListener("offline", netBar);
+
+  var rendered = false;
   function start(){
     if(!/^[A-Za-z0-9]{20,}$/.test(token)){
       fail("El link no es válido. Pide a logística que te lo envíe de nuevo.");
       return;
     }
-    var ref = FBC.doc(FBC.db, "entregas", token);
-    FBC.getDoc(ref).then(function(snap){
-      if(!snap.exists()){
-        fail("No se encontró este despacho. Puede que aún se esté registrando: espera unos segundos y vuelve a abrir el link.");
-        return;
+    netBar();
+    // 1) Lo guardado en el teléfono se muestra al instante (sirve sin señal)
+    var local = jget(KEY_E);
+    if(local){ entrega = local; aplicarPendientes(); render(); rendered = true; }
+    if(window.FBC) cargarServidor();
+    else window.addEventListener("fbc-ready", cargarServidor, {once: true});
+    setTimeout(function(){
+      if(!rendered){
+        fail(navigator.onLine
+          ? "No se pudo cargar el despacho. Revisa tu señal e intenta de nuevo."
+          : "📵 Sin señal. Este despacho aún no se ha abierto en este teléfono: ábrelo una vez con señal (por ejemplo en la bodega) y después funcionará aunque no haya señal.");
       }
-      entrega = snap.data();
-      render();
-    }).catch(function(err){
-      console.error(err);
-      fail("No se pudo cargar el despacho. Revisa tu señal e intenta de nuevo.");
+    }, 12000);
+  }
+  // Las etapas registradas sin señal se muestran como hechas (pendientes de envío)
+  function aplicarPendientes(){
+    var q = outbox();
+    ["inicio","termino"].forEach(function(e){
+      if(q[e] && !entrega[e]) entrega[e] = Object.assign({}, q[e].data, {pendiente: true});
     });
   }
+  // 2) Datos del servidor cuando hay señal
+  function cargarServidor(){
+    var ref = FBC.doc(FBC.db, "entregas", token);
+    withTimeout(FBC.getDoc(ref), 8000).then(function(snap){
+      if(!snap.exists()){
+        if(!rendered) fail("No se encontró este despacho. Puede que aún se esté registrando: espera unos segundos y vuelve a abrir el link.");
+        return;
+      }
+      var antes = entrega ? (!!entrega.inicio) + "" + (!!entrega.termino) : "";
+      entrega = snap.data();
+      aplicarPendientes();
+      jset(KEY_E, limpiar(entrega));
+      var ahora = (!!entrega.inicio) + "" + (!!entrega.termino);
+      if(!rendered || antes !== ahora){ render(); rendered = true; }
+      flush();
+    }).catch(function(err){
+      console.warn("[chofer] sin datos del servidor:", err && err.message);
+      if(!rendered){
+        fail(navigator.onLine
+          ? "No se pudo cargar el despacho. Revisa tu señal e intenta de nuevo."
+          : "📵 Sin señal. Este despacho aún no se ha abierto en este teléfono: ábrelo una vez con señal (por ejemplo en la bodega) y después funcionará aunque no haya señal.");
+      }
+      flush();
+    });
+  }
+  // Quita valores que no se pueden guardar en el teléfono (marcas de tiempo del servidor)
+  function limpiar(o){ return JSON.parse(JSON.stringify(o, function(k, v){ return (v && typeof v === "object" && typeof v.toDate === "function") ? null : v; })); }
+
+  // 3) Envía la cola (al abrir, al volver la señal y al registrar)
+  var enviando = {};
+  function flush(){
+    if(!window.FBC) return;
+    pendientes().forEach(function(etapa){
+      if(enviando[etapa]) return;
+      if(etapa === "termino" && pendientes().indexOf("inicio") >= 0 && !enviando.inicio) return;  // primero el inicio
+      enviando[etapa] = true;
+      var item = outbox()[etapa];
+      var jobs = [];
+      if(item.foto){
+        jobs.push(FBC.setDoc(FBC.doc(FBC.db, "entregasFotos", token + "_" + etapa), {
+          token: token, etapa: etapa, data: item.foto, createdAt: FBC.serverTimestamp()
+        }));
+      }
+      var upd = {updatedAt: FBC.serverTimestamp()};
+      upd[etapa] = Object.assign({}, item.data, {at: FBC.serverTimestamp()});
+      jobs.push(FBC.updateDoc(FBC.doc(FBC.db, "entregas", token), upd));
+      Promise.all(jobs).then(function(){
+        listo(etapa);
+      }).catch(function(err){
+        var perm = /permission|insufficient/i.test(err && err.message || "");
+        if(perm){
+          // ¿Ya había llegado (envío anterior)? Entonces no es error
+          var ref = FBC.doc(FBC.db, "entregas", token);
+          (FBC.getDocFromServer ? FBC.getDocFromServer(ref) : FBC.getDoc(ref)).then(function(snap){
+            if(snap.exists() && snap.data()[etapa]) listo(etapa);
+            else { enviando[etapa] = false; showMsgSafe("err", "Este despacho ya fue cerrado o el link no es válido. Contacta a logística."); }
+          }).catch(function(){ enviando[etapa] = false; });
+        } else {
+          enviando[etapa] = false;
+        }
+      });
+    });
+    netBar();
+  }
+  function listo(etapa){
+    enviando[etapa] = false;
+    var q = outbox(); delete q[etapa]; jset(KEY_Q, Object.keys(q).length ? q : null);
+    if(entrega && entrega[etapa]) delete entrega[etapa].pendiente;
+    guardarLocal();
+    netBar();
+    var chip = document.getElementById("pend_" + etapa);
+    if(chip){ chip.textContent = "✓ Enviado a logística"; chip.style.background = "var(--ok-soft)"; chip.style.color = "var(--ok)"; chip.style.borderColor = "#bfe0cd"; }
+    if(pendientes().length) flush();
+  }
+  function showMsgSafe(cls, txt){ var m = document.getElementById("c_msg"); if(m) m.innerHTML = '<div class="msg ' + cls + '">' + txt + '</div>'; }
 
   function resumenHtml(){
     var r = entrega.resumen || {};
@@ -182,7 +297,9 @@
         + '<div class="kv">Recibió: <b>' + esc(t.recibio || "—") + '</b></div>'
         + '<div class="kv">Bandejas entregadas: <b>' + fmtNum(t.bandejas) + '</b></div>'
         + '<div class="kv">Hora: <b>' + esc(fmtHora(t.atLocal)) + '</b></div>'
-        + '<p style="color:var(--muted);font-size:14px">Gracias. Logística ya recibió la confirmación.</p></div>';
+        + (t.pendiente
+            ? '<div class="pend" id="pend_termino">⏳ Guardado en el teléfono · se enviará solo cuando haya señal</div>'
+            : '<p style="color:var(--muted);font-size:14px">Gracias. Logística ya recibió la confirmación.</p>') + '</div>';
       main.innerHTML = h;
       return;
     }
@@ -195,7 +312,8 @@
         + '<label>Bandejas cargadas</label><input type="number" id="c_bandejas" inputmode="numeric" min="0" value="' + (+r.bandejas || "") + '">';
     } else {
       var i = entrega.inicio;
-      h += '<div class="card"><div class="msg ok" style="margin:0 0 12px">🚚 En ruta desde ' + esc(fmtHora(i.atLocal)) + ' · ' + fmtNum(i.bandejas) + ' bandejas cargadas</div>'
+      h += '<div class="card"><div class="msg ok" style="margin:0 0 12px">🚚 En ruta desde ' + esc(fmtHora(i.atLocal)) + ' · ' + fmtNum(i.bandejas) + ' bandejas cargadas'
+        + (i.pendiente ? '<br><span class="pend" id="pend_inicio">⏳ Inicio guardado en el teléfono · se enviará solo cuando haya señal</span>' : '') + '</div>'
         + '<h2>✅ Confirmar entrega</h2>'
         + '<label>¿Quién recibió?</label><input type="text" id="c_recibio" placeholder="Nombre de quien recibe">'
         + '<label>Bandejas entregadas</label><input type="number" id="c_bandejas" inputmode="numeric" min="0" value="' + (+i.bandejas || +r.bandejas || "") + '">';
@@ -320,8 +438,8 @@
       fotoAt: fotoAt || "",
       gps: gps,
       gpsError: gps ? "" : (gpsErr || "no disponible"),
-      at: FBC.serverTimestamp(),
-      atLocal: new Date().toISOString()
+      atLocal: new Date().toISOString(),
+      sinSenal: !navigator.onLine
     };
     if(etapa === "inicio"){
       var nombre = document.getElementById("c_nombre").value.trim();
@@ -337,55 +455,37 @@
       data.chofer = (entrega.inicio && entrega.inicio.chofer) || lsGet("sps_chofer_nombre");
     }
     if(!fotoData && !confirm("No agregaste foto. ¿Enviar de todas formas?")) return;
-
     btn.disabled = true;
-    btn.textContent = "Enviando…";
-    showMsg("warn", "Enviando… no cierres esta página.");
 
-    var slow = setTimeout(function(){
-      showMsg("warn", "📶 Poca señal: quedó guardado en el teléfono y se enviará solo cuando haya señal. "
-        + "Si cierras el navegador, vuelve a abrir este mismo link más tarde.");
-    }, 9000);
-
-    var jobs = [];
-    if(fotoData){
-      jobs.push(FBC.setDoc(FBC.doc(FBC.db, "entregasFotos", token + "_" + etapa), {
-        token: token, etapa: etapa, data: fotoData, createdAt: FBC.serverTimestamp()
-      }));
+    // Se guarda primero en el teléfono: aunque no haya señal o se cierre la página, no se pierde
+    var q = outbox();
+    q[etapa] = {data: data, foto: fotoData || null};
+    try{ localStorage.setItem(KEY_Q, JSON.stringify(q)); }
+    catch(e){
+      // Sin espacio para la foto: se guarda sin ella antes que perder el registro
+      q[etapa].foto = null; q[etapa].data.foto = false; q[etapa].data.fotoNoGuardada = true;
+      jset(KEY_Q, q);
     }
-    var upd = {updatedAt: FBC.serverTimestamp()};
-    upd[etapa] = data;
-    jobs.push(FBC.updateDoc(FBC.doc(FBC.db, "entregas", token), upd));
+    entrega[etapa] = Object.assign({}, data, {pendiente: true});
+    guardarLocal();
 
-    Promise.all(jobs).then(function(){
-      clearTimeout(slow);
-      entrega[etapa] = Object.assign({}, data, {at: null});
-      if(etapa === "inicio"){
-        main.innerHTML = stepsHtml() + '<div class="card done"><div class="ico">🚚</div><h2>¡Despacho iniciado!</h2>'
-          + '<p style="color:var(--muted)">Logística ya sabe que vas en camino.<br>Cuando entregues, vuelve a abrir <b>este mismo link</b> para confirmar la entrega.</p>'
-          + '<button class="btn go" id="c_next">Ir a confirmar entrega</button></div>';
-        document.getElementById("c_next").addEventListener("click", function(){ render(); window.scrollTo(0,0); });
-      } else {
-        render();
-      }
-      window.scrollTo(0, 0);
-    }).catch(function(err){
-      clearTimeout(slow);
-      console.error(err);
-      btn.disabled = false;
-      btn.textContent = etapa === "inicio" ? "▶️ Iniciar despacho" : "✅ Confirmar entrega";
-      var perm = /permission|insufficient/i.test(err && err.message || "");
-      showMsg("err", perm
-        ? "Este despacho ya fue cerrado o el link no es válido. Contacta a logística."
-        : "No se pudo enviar. Revisa tu señal e intenta de nuevo.");
-    });
+    if(etapa === "inicio"){
+      main.innerHTML = stepsHtml() + '<div class="card done"><div class="ico">🚚</div><h2>¡Despacho iniciado!</h2>'
+        + '<div class="pend" id="pend_inicio">' + (navigator.onLine ? '📶 Enviando a logística…' : '⏳ Guardado en el teléfono · se enviará solo cuando haya señal') + '</div>'
+        + '<p style="color:var(--muted)">Cuando entregues, vuelve a abrir <b>este mismo link</b> para confirmar la entrega (funciona aunque no tengas señal).</p>'
+        + '<button class="btn go" id="c_next">Ir a confirmar entrega</button></div>';
+      document.getElementById("c_next").addEventListener("click", function(){ render(); window.scrollTo(0,0); });
+    } else {
+      render();
+      var chip = document.getElementById("pend_termino");
+      if(chip && navigator.onLine) chip.textContent = "📶 Enviando a logística…";
+    }
+    window.scrollTo(0, 0);
+    flush();
   }
 
-  if(window.FBC) start();
-  else window.addEventListener("fbc-ready", start, {once: true});
-  setTimeout(function(){
-    if(!window.FBC) fail("No se pudo conectar. Revisa tu señal e intenta de nuevo.");
-  }, 20000);
+  start();
+  window.addEventListener("fbc-ready", flush);
 })();
 </script>
 </body>
