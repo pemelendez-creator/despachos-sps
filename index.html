@@ -253,6 +253,17 @@
   .hrow .hacts{display:flex;gap:10px;flex-wrap:wrap;white-space:nowrap}
   .hrow .hacts a{color:var(--blue);font-weight:600;text-decoration:none}
   .hfilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  #realBody .hfilters label{white-space:nowrap} #realBody .hfilters input[type=checkbox]{width:auto;margin:0}
+  #realBody #r_q{flex:1;min-width:200px;width:auto}
+  .rtab{width:100%;border-collapse:collapse;font-size:13px;min-width:820px}
+  .rtab th{background:var(--navy,#14366E);color:#fff;padding:7px 6px;text-align:left;font-size:12px;position:sticky;top:0}
+  .rtab td{padding:5px 6px;border-bottom:1px solid var(--line,#d8e0ea);vertical-align:middle}
+  .rtab td.n,.rtab th.n{text-align:right}
+  .rtab input.rn{width:84px;text-align:right;padding:6px;font-size:14px;font-weight:700}
+  .rtab input.ro{width:100%;min-width:130px;padding:6px;font-size:13px}
+  .rtab tr.dif td{background:#fbe9e7} .rtab tr.ok td{background:#e6f3ec} .rtab tr.dirty td{background:#fff8e1}
+  .rtab .eq{border:1px solid #bfe0cd;background:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;font-weight:700;color:#2e7d52}
+  .rsum{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-size:13px} .rsum b{font-size:16px}
   .hfilters input[type=text],.hfilters #h_q{flex:1;min-width:180px}
   .hfilters label{font-size:12px;color:var(--muted);display:flex;gap:4px;align-items:center}
   .editbar{background:#fff4e2;color:#7a4a00;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:8px}
@@ -589,6 +600,7 @@
       <button class="btn ghost sm" id="outlookWebBtn" onclick="openOutlookWeb()" title="Abre Outlook Web en el navegador (útil si el Outlook de escritorio no responde)">🌐 Outlook Web</button>
       <button class="btn success sm" onclick="markPendingSent()" id="t_bmark">Marcar como enviados</button>
       <button class="btn ghost sm" onclick="openHistory()" title="Despachos finalizados">📚 Historial</button>
+      <button class="btn ghost sm" id="t_breal" onclick="openReal()" style="display:none" title="Digitar lo que realmente salió del invernadero (cuaderno) y cruzarlo con lo solicitado">📓 Real invernadero</button>
       <button class="btn warn sm" onclick="openReturnsPanel()" title="Registrar bandejas devueltas por los agricultores">📦 Recuperación de bandejas</button>
       <button class="btn ghost sm" onclick="openConfig()" id="t_bcfg">Configuración</button>
       <button class="btn ghost sm" onclick="openFarmers()" id="t_bfarm">Agricultores</button>
@@ -648,6 +660,15 @@
     <button class="x" onclick="closeOv('ovHist')">×</button>
   </div>
   <div class="mb" id="histBody"></div>
+</div></div>
+
+<!-- Real invernadero: lo que salió de verdad vs. lo solicitado -->
+<div class="ov" id="ovReal"><div class="modal" style="max-width:1080px">
+  <div class="mh">
+    <h3>📓 Real invernadero · solicitado vs. real</h3>
+    <button class="x" onclick="closeReal()">×</button>
+  </div>
+  <div class="mb" id="realBody"></div>
 </div></div>
 
 <!-- Fotos del chofer -->
@@ -2196,6 +2217,7 @@ function applyStatic(){
     var el = document.getElementById(id);
     if(el) el.textContent = L(m[id]);
   }
+  var realBtn = document.getElementById("t_breal"); if(realBtn) realBtn.style.display = isAdmin() ? "" : "none";
   var loginBtn = document.getElementById("loginBtn"); if(loginBtn) loginBtn.textContent = L("login_btn");
   var resetBtn = document.getElementById("resetBtn"); if(resetBtn) resetBtn.textContent = L("breset");
   var logoutBtn = document.getElementById("logoutBtn"); if(logoutBtn) logoutBtn.textContent = lang==="es"?"Cerrar sesión":"Sign out";
@@ -2480,9 +2502,9 @@ function shareGreenhouseDay(ds){
 /* ============================ VERSIÓN ============================
    Cambiar APP_VERSION en cada entrega. La app revisa cada 5 minutos si hay
    una versión publicada más nueva y muestra un aviso para recargar. */
-var APP_VERSION = "3.3";
-var APP_VERSION_DATE = "21-10-2026 13:45";
-var APP_VERSION_NOTES = "WhatsApp para invernadero (por despacho y carga del día) · Excel solicitados / sin solicitar";
+var APP_VERSION = "3.4";
+var APP_VERSION_DATE = "11-11-2026 21:00";
+var APP_VERSION_NOTES = "Real invernadero: digitación del cuaderno y Excel solicitado vs. real";
 function showVersion(){
   var v = document.getElementById("appVersion");
   if(v) v.textContent = "v" + APP_VERSION;
@@ -2574,6 +2596,200 @@ function histRowHtml(d, ds, compact){
   if(isAdmin()) h += '<a href="#" onclick="reopenDispatch(\'' + d.id + '\');return false;">↩ Reabrir</a>';
   return h + '</div></div>';
 }
+/* ===================== REAL INVERNADERO: solicitado vs. lo que salió de verdad ===================== */
+function _addDays(ymd, n){ var d = localDateFromYMD(ymd); d.setDate(d.getDate() + n); return d.getFullYear() + "-" + ("0"+(d.getMonth()+1)).slice(-2) + "-" + ("0"+d.getDate()).slice(-2); }
+function _dmy(ymd){ return String(ymd || "").split("-").reverse().join("-"); }
+function _entregadoChofer(d){
+  if(d.finalizado && d.bandejasEntregadas != null) return +d.bandejasEntregadas;
+  var e = entregaOf(d);
+  return (e && e.termino && e.termino.bandejas != null) ? +e.termino.bandejas : null;
+}
+function _tieneReal(d){ return d.invReal !== undefined && d.invReal !== null && d.invReal !== ""; }
+function openReal(){
+  if(!isAdmin()){ alert("Solo la cuenta de logística puede registrar lo real del invernadero."); return; }
+  var b = document.getElementById("realBody");
+  if(!document.getElementById("r_desde")){
+    b.innerHTML = '<div class="hint" style="margin-bottom:8px">Digite lo que <strong>realmente salió del invernadero</strong> según el cuaderno. '
+      + 'Use <strong>=</strong> si salió lo mismo que se solicitó. <strong>Enter</strong> pasa a la fila siguiente. Deje vacío lo que aún no tiene dato.</div>'
+      + '<div class="hfilters">'
+      + '<label>Desde <input type="date" id="r_desde" value="' + _addDays(todayStr(), -14) + '" onchange="renderRealList()"></label>'
+      + '<label>Hasta <input type="date" id="r_hasta" value="' + todayStr() + '" onchange="renderRealList()"></label>'
+      + '<input id="r_q" placeholder="🔍 Agricultor, SPS, contrato…" oninput="renderRealList()">'
+      + '<label><input type="checkbox" id="r_solo" onchange="renderRealList()"> Solo sin registrar</label>'
+      + '<label><input type="checkbox" id="r_dif" onchange="renderRealList()"> Solo con diferencia</label>'
+      + '</div><div id="realSum" class="rsum"></div>'
+      + '<div style="overflow:auto;max-height:52vh;border:1px solid var(--line,#d8e0ea);border-radius:8px"><table class="rtab"><thead><tr>'
+      + '<th>Fecha</th><th>Agricultor</th><th>SPS · Contrato</th><th>Solicitó</th><th class="n">Solicitado</th><th></th><th class="n">Real invernadero</th><th class="n">Dif.</th><th class="n">Entregó chofer</th><th>Observación</th>'
+      + '</tr></thead><tbody id="realRows"></tbody></table></div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">'
+      + '<button class="btn primary" onclick="saveReal()" id="r_save">💾 Guardar</button>'
+      + '<button class="btn success sm" onclick="exportRealVsSolicitado()">📊 Excel solicitado vs. real</button>'
+      + '<span id="r_msg" class="hint"></span></div>';
+  }
+  document.getElementById("ovReal").classList.add("show");
+  renderRealList();
+}
+function closeReal(){
+  if(_realDirty().length && !confirm("Hay cambios sin guardar. ¿Cerrar de todas formas?")) return;
+  closeOv("ovReal");
+}
+function realRows(){
+  var desde = document.getElementById("r_desde").value || "", hasta = document.getElementById("r_hasta").value || "";
+  var q = normTxt(document.getElementById("r_q").value || "");
+  var solo = document.getElementById("r_solo").checked, sdif = document.getElementById("r_dif").checked;
+  var rows = [];
+  for(var k in state.dispatches){
+    if((desde && k < desde) || (hasta && k > hasta)) continue;
+    (state.dispatches[k] || []).forEach(function(d){
+      if(q && normTxt([d.farmerName, d.spsCode, d.contractNumber, d.user].join(" ")).indexOf(q) < 0) return;
+      if(solo && _tieneReal(d)) return;
+      if(sdif && !(_tieneReal(d) && +d.invReal !== (+d.trays || 0))) return;
+      rows.push(Object.assign({date: k}, d));
+    });
+  }
+  return rows.sort(function(a,b){ return a.date === b.date ? String(a.farmerName).localeCompare(String(b.farmerName)) : (a.date < b.date ? -1 : 1); });
+}
+function renderRealList(){
+  var pend = _realValues();            // conserva lo digitado al filtrar
+  var rows = realRows(), tb = document.getElementById("realRows");
+  tb.innerHTML = rows.length ? rows.map(function(d){
+    var tiene = _tieneReal(d), ch = _entregadoChofer(d);
+    var val = pend[d.id] ? pend[d.id].real : (tiene ? d.invReal : "");
+    var obs = pend[d.id] ? pend[d.id].obs : (d.invRealObs || "");
+    return '<tr data-id="' + esc(d.id) + '" data-sol="' + (+d.trays || 0) + '" data-orig="' + (tiene ? esc(d.invReal) : "") + '" data-oobs="' + esc(d.invRealObs || "") + '">'
+      + '<td>' + _dmy(d.date) + '</td>'
+      + '<td>' + esc(d.farmerName || "—") + (d.retiroAgricultor ? ' <span class="hint">(retira)</span>' : '') + '</td>'
+      + '<td><strong>' + esc(d.spsCode || "—") + '</strong> · ' + esc(d.contractNumber || "—") + '</td>'
+      + '<td>' + esc(d.user || "") + '</td>'
+      + '<td class="n"><strong>' + fmtNum(d.trays) + '</strong></td>'
+      + '<td><button class="eq" title="Salió lo mismo que se solicitó" onclick="realEq(this)">=</button></td>'
+      + '<td class="n"><input class="rn" type="number" min="0" inputmode="numeric" value="' + esc(val) + '" oninput="realMark(this)" onkeydown="realKey(event,this)"></td>'
+      + '<td class="n rd"></td>'
+      + '<td class="n">' + (ch == null ? '<span class="hint">—</span>' : fmtNum(ch)) + '</td>'
+      + '<td><input class="ro" type="text" maxlength="200" value="' + esc(obs) + '" oninput="realMark(this)" placeholder="Ej: faltaron por germinación"></td></tr>';
+  }).join("") : '<tr><td colspan="10" class="empty" style="padding:18px;text-align:center">No hay despachos con estos filtros.</td></tr>';
+  Array.prototype.forEach.call(tb.querySelectorAll("tr[data-id]"), _realPaint);
+  _realSummary();
+}
+function _realPaint(tr){
+  var inp = tr.querySelector(".rn"), ro = tr.querySelector(".ro"), sol = +tr.getAttribute("data-sol");
+  var v = inp.value.trim(), cell = tr.querySelector(".rd");
+  var dirty = v !== tr.getAttribute("data-orig") || ro.value.trim() !== tr.getAttribute("data-oobs");
+  tr.className = "";
+  if(v === ""){ cell.textContent = ""; }
+  else {
+    var dif = (+v) - sol;
+    cell.innerHTML = dif === 0 ? '✓' : '<strong style="color:#b3261e">' + (dif > 0 ? "+" : "") + fmtNum(dif) + '</strong>';
+    tr.className = dif === 0 ? "ok" : "dif";
+  }
+  if(dirty) tr.className += " dirty";
+}
+function realMark(el){ _realPaint(el.closest("tr")); _realSummary(); }
+function realEq(btn){ var tr = btn.closest("tr"); tr.querySelector(".rn").value = tr.getAttribute("data-sol"); realMark(btn); var n = tr.nextElementSibling; if(n && n.querySelector(".rn")) n.querySelector(".rn").focus(); }
+function realKey(ev, el){
+  if(ev.key !== "Enter" && ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+  ev.preventDefault();
+  var tr = el.closest("tr"), n = ev.key === "ArrowUp" ? tr.previousElementSibling : tr.nextElementSibling;
+  if(n && n.querySelector(".rn")){ n.querySelector(".rn").focus(); n.querySelector(".rn").select(); }
+}
+function _realValues(){
+  var m = {};
+  Array.prototype.forEach.call(document.querySelectorAll("#realRows tr.dirty"), function(tr){
+    m[tr.getAttribute("data-id")] = {real: tr.querySelector(".rn").value.trim(), obs: tr.querySelector(".ro").value.trim()};
+  });
+  return m;
+}
+function _realDirty(){ return Object.keys(_realValues()); }
+function _realSummary(){
+  var sol = 0, real = 0, n = 0, reg = 0, dif = 0;
+  Array.prototype.forEach.call(document.querySelectorAll("#realRows tr[data-id]"), function(tr){
+    n++; var s = +tr.getAttribute("data-sol"), v = tr.querySelector(".rn").value.trim();
+    if(v !== ""){ reg++; sol += s; real += +v; if(+v !== s) dif++; }
+  });
+  var d = real - sol;
+  document.getElementById("realSum").innerHTML =
+    '<span>Despachos: <b>' + n + '</b></span><span>Con dato real: <b>' + reg + '</b></span><span>Sin registrar: <b>' + (n - reg) + '</b></span>'
+    + '<span>Solicitado (con dato): <b>' + fmtNum(sol) + '</b></span><span>Real: <b>' + fmtNum(real) + '</b></span>'
+    + '<span>Diferencia: <b style="color:' + (d === 0 ? "#2e7d52" : "#b3261e") + '">' + (d > 0 ? "+" : "") + fmtNum(d) + '</b> (' + dif + ' con diferencia)</span>';
+  var m = document.getElementById("r_msg"), c = _realDirty().length;
+  if(m) m.textContent = c ? c + " cambio(s) sin guardar" : "";
+}
+function saveReal(){
+  var vals = _realValues(), ids = Object.keys(vals);
+  if(!ids.length){ document.getElementById("r_msg").textContent = "No hay cambios que guardar."; return; }
+  for(var i = 0; i < ids.length; i++){
+    var v = vals[ids[i]].real;
+    if(v !== "" && (isNaN(+v) || +v < 0 || Math.floor(+v) !== +v)){ alert("Hay un valor no válido en 'Real invernadero'. Use números enteros."); return; }
+  }
+  var btn = document.getElementById("r_save"); btn.disabled = true; btn.textContent = "Guardando…";
+  var now = new Date().toISOString();
+  var jobs = ids.map(function(id){
+    var v = vals[id], upd = {invReal: v.real === "" ? null : +v.real, invRealObs: v.obs || "", invRealAt: now, invRealBy: currentUser};
+    for(var k in state.dispatches){ (state.dispatches[k] || []).forEach(function(d){ if(d.id === id) Object.assign(d, upd); }); }
+    if(storageMode === "firebase" && FBApi.isAvailable()) return FBApi.updateDocument("despachos", id, upd);
+    return Promise.resolve();
+  });
+  if(storageMode !== "firebase") saveState();
+  Promise.all(jobs).then(function(){
+    btn.disabled = false; btn.textContent = "💾 Guardar";
+    Array.prototype.forEach.call(document.querySelectorAll("#realRows tr.dirty"), function(tr){ tr.classList.remove("dirty"); });
+    renderRealList();
+    document.getElementById("r_msg").textContent = "✅ " + ids.length + " registro(s) guardado(s)";
+  }).catch(function(e){
+    btn.disabled = false; btn.textContent = "💾 Guardar";
+    alert("❌ No se pudo guardar todo: " + e.message + "\nRevise su conexión y presione Guardar de nuevo.");
+  });
+}
+/* Excel de cruce: por despacho y por contrato */
+function exportRealVsSolicitado(){
+  if(typeof ExcelJS === "undefined"){ alert("ExcelJS no está disponible. No se puede generar el Excel."); return; }
+  if(_realDirty().length && !confirm("Hay cambios sin guardar que no saldrán en el Excel. ¿Continuar?")) return;
+  var keep = {solo: document.getElementById("r_solo").checked, dif: document.getElementById("r_dif").checked, q: document.getElementById("r_q").value};
+  document.getElementById("r_solo").checked = false; document.getElementById("r_dif").checked = false; document.getElementById("r_q").value = "";
+  var rows = realRows();
+  document.getElementById("r_solo").checked = keep.solo; document.getElementById("r_dif").checked = keep.dif; document.getElementById("r_q").value = keep.q;
+  if(!rows.length){ alert("No hay despachos en el rango de fechas."); return; }
+  var wb = new ExcelJS.Workbook(); wb.creator = "SPS Chile - App Despacho Bandejas"; wb.created = new Date();
+  var N = "#,##0", F = "dd-mm-yyyy";
+  function hoja(nombre, cols){
+    var ws = wb.addWorksheet(nombre, {views: [{state: "frozen", ySplit: 1}]});
+    ws.columns = cols.map(function(c){ return {header: c[0], key: c[1], width: c[2], style: c[3] ? {numFmt: c[3]} : {}}; });
+    var h = ws.getRow(1); h.height = 32;
+    h.eachCell(function(cell){ cell.fill = {type: "pattern", pattern: "solid", fgColor: {argb: "FF14366E"}}; cell.font = {name: "Arial", size: 10, bold: true, color: {argb: "FFFFFFFF"}}; cell.alignment = {vertical: "middle", horizontal: "center", wrapText: true}; });
+    ws.autoFilter = {from: {row: 1, column: 1}, to: {row: 1, column: cols.length}};
+    return ws;
+  }
+  function pintar(row, argb){ row.eachCell({includeEmpty: true}, function(c){ c.fill = {type: "pattern", pattern: "solid", fgColor: {argb: argb}}; }); }
+  var ws1 = hoja("Por despacho", [["Fecha","fec",12,F],["Agricultor","agr",34],["SPS","sps",11],["Contrato","con",10],["Solicitó","sol",22],["Vehículo","veh",18],
+    ["Solicitado","s",11,N],["Real invernadero","r",12,N],["Dif. real − solicitado","d1",12,N],["Entregado (chofer)","e",12,N],["Dif. entregado − real","d2",12,N],["Estado","est",15],["Observación","obs",40]]);
+  var T = {s:0, r:0, e:0}, porCon = {};
+  rows.forEach(function(d){
+    var tiene = _tieneReal(d), s = +d.trays || 0, r = tiene ? +d.invReal : null, e = _entregadoChofer(d);
+    var est = !tiene ? "SIN REGISTRO" : (r === s ? "OK" : "DIFERENCIA");
+    var row = ws1.addRow({fec: localDateFromYMD(d.date), agr: d.farmerName || "", sps: d.spsCode || "", con: d.contractNumber || "", sol: d.user || "", veh: _vehiculoTxt(d),
+      s: s, r: r, d1: tiene ? r - s : null, e: e, d2: (tiene && e != null) ? e - r : null, est: est, obs: d.invRealObs || ""});
+    if(est === "DIFERENCIA") pintar(row, "FFFBE9E7"); else if(est === "OK") pintar(row, "FFE6F3EC"); else pintar(row, "FFFFF4E2");
+    T.s += s; T.r += r || 0; T.e += e || 0;
+    var k = (d.productionId || "") + "|" + (d.spsCode || "") + "|" + (d.contractNumber || "");
+    var c = porCon[k] = porCon[k] || {sps: d.spsCode || "", con: d.contractNumber || "", pid: d.productionId, n: 0, s: 0, sReg: 0, r: 0, sin: 0};
+    c.n++; c.s += s; if(tiene){ c.sReg += s; c.r += r; } else c.sin++;
+  });
+  var tr = ws1.addRow({agr: "TOTAL", s: T.s, r: T.r, e: T.e}); tr.font = {bold: true}; pintar(tr, "FFE8EFF8");
+  var ws2 = hoja("Por contrato", [["SPS","sps",11],["Contrato","con",10],["Especie","esp",16],["Fieldman","fm",10],["Bandejas sembradas","sem",12,N],["N° despachos","n",10],
+    ["Solicitado","s",11,N],["Solicitado (con dato real)","sr",13,N],["Real invernadero","r",12,N],["Diferencia","d",11,N],["Despachos sin registro","sin",12],["Saldo según solicitado","sal1",13,N],["Saldo real estimado","sal2",13,N]]);
+  Object.keys(porCon).sort().forEach(function(k){
+    var c = porCon[k], p = c.pid ? getProductionById(c.pid) : null, sem = p ? (+p.bandejasSembradas || 0) : null;
+    var totSol = p ? getBandejasDespachadas(p.id) : null;    // todo lo solicitado de esa producción (no solo el rango)
+    var row = ws2.addRow({sps: c.sps, con: c.con, esp: p ? p.especie : "", fm: p ? p.fm : "", sem: sem, n: c.n, s: c.s, sr: c.sReg, r: c.r, d: c.r - c.sReg, sin: c.sin,
+      sal1: sem != null ? sem - totSol : null, sal2: sem != null ? sem - totSol - (c.r - c.sReg) : null});
+    if(c.r - c.sReg !== 0) pintar(row, "FFFBE9E7");
+  });
+  var desde = document.getElementById("r_desde").value, hasta = document.getElementById("r_hasta").value;
+  wb.xlsx.writeBuffer().then(function(buffer){
+    downloadBlob(new Blob([buffer], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "SOLICITADO_VS_REAL_" + _dmy(desde) + "_a_" + _dmy(hasta) + ".xlsx");
+  }).catch(function(err){ console.error(err); alert("Error generando Excel: " + err.message); });
+}
+
 function openHistory(){
   document.getElementById("ovHist").classList.add("show");
   renderHistory();
