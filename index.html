@@ -255,6 +255,13 @@
   .hfilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   #realBody .hfilters label{white-space:nowrap} #realBody .hfilters input[type=checkbox]{width:auto;margin:0}
   #realBody #r_q{flex:1;min-width:200px;width:auto}
+  .tcard{border:1px solid var(--line,#d8e0ea);border-radius:10px;padding:10px 12px;margin:8px 0;background:#fff}
+  .tcard.e_solicitada{border-left:5px solid #b06a00} .tcard.e_terreno{border-left:5px solid #1F5BA6} .tcard.e_retirada{border-left:5px solid #2e7d52;opacity:.8} .tcard.e_cancelada{border-left:5px solid #999;opacity:.6}
+  .tcard .th{display:flex;gap:8px;align-items:center;flex-wrap:wrap} .tcard .tn{font-size:16px;font-weight:800;color:var(--navy,#14366E)}
+  .tchip{font-size:11px;font-weight:700;border-radius:20px;padding:2px 9px;background:#eef2f8;color:#14366E} .tchip.w{background:#fff4e2;color:#b06a00} .tchip.b{background:#e3eefb;color:#1F5BA6} .tchip.g{background:#e6f3ec;color:#2e7d52} .tchip.r{background:#fbe9e7;color:#b3261e}
+  .tform{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;background:#f5f7fb;border:1px solid var(--line,#d8e0ea);border-radius:10px;padding:12px;margin-bottom:12px}
+  .tform label{font-size:12px;color:var(--muted);display:block;margin-bottom:3px} .tform input,.tform select{width:100%}
+  .tacc{display:flex;gap:10px;flex-wrap:wrap} .tacc label{display:flex;gap:5px;align-items:center;font-size:13px;color:var(--ink);margin:0} .tacc input{width:auto}
   .rtab{width:100%;border-collapse:collapse;font-size:13px;min-width:820px}
   .rtab th{background:var(--navy,#14366E);color:#fff;padding:7px 6px;text-align:left;font-size:12px;position:sticky;top:0}
   .rtab td{padding:5px 6px;border-bottom:1px solid var(--line,#d8e0ea);vertical-align:middle}
@@ -602,6 +609,7 @@
       <button class="btn ghost sm" onclick="openHistory()" title="Despachos finalizados">📚 Historial</button>
       <button class="btn ghost sm" id="t_breal" onclick="openReal()" style="display:none" title="Digitar lo que realmente salió del invernadero (cuaderno) y cruzarlo con lo solicitado">📓 Real invernadero</button>
       <button class="btn warn sm" onclick="openReturnsPanel()" title="Registrar bandejas devueltas por los agricultores">📦 Recuperación de bandejas</button>
+      <button class="btn ghost sm" onclick="openTrill()" title="Solicitud y control de trilladoras Nogueira">🚜 Trilladoras <span id="trillBadge"></span></button>
       <button class="btn ghost sm" onclick="openConfig()" id="t_bcfg">Configuración</button>
       <button class="btn ghost sm" onclick="openFarmers()" id="t_bfarm">Agricultores</button>
       <button class="btn ghost sm" onclick="document.getElementById('impFarmers').click()" title="Importa una base de agricultores desde archivo JSON (sin borrar despachos ni configuración)">👥 Importar agricultores</button>
@@ -660,6 +668,15 @@
     <button class="x" onclick="closeOv('ovHist')">×</button>
   </div>
   <div class="mb" id="histBody"></div>
+</div></div>
+
+<!-- Trilladoras Nogueira -->
+<div class="ov" id="ovTrill"><div class="modal" style="max-width:1000px">
+  <div class="mh">
+    <h3>🚜 Trilladoras Nogueira · solicitudes</h3>
+    <button class="x" onclick="closeOv('ovTrill')">×</button>
+  </div>
+  <div class="mb" id="trillBody"></div>
 </div></div>
 
 <!-- Real invernadero: lo que salió de verdad vs. lo solicitado -->
@@ -1381,6 +1398,18 @@ function setupRealtimeSync(){
     autoFinalizeFromEntregas();
     if(currentUser && selDate) renderPanel();
   }));
+
+  // === Trilladoras: solicitudes y catálogo ===
+  _realtimeUnsubs.push(FBApi.subscribeCollection("trilladoraPedidos", function(items){
+    state.trillPedidos = items.map(function(r){ return Object.assign({}, r, {id: r._id}); });
+    if(currentUser){ trillRefresh(); }
+  }, function(){}));
+  if(typeof FBApi.subscribeConfig === "function"){
+    _realtimeUnsubs.push(FBApi.subscribeConfig("trilladoras", function(cfg){
+      state.trillCfg = cfg || null;
+      if(currentUser){ trillRefresh(); }
+    }));
+  }
 
   _realtimeUnsubs.push(FBApi.subscribeCollection("devoluciones", function(items){
     state.returns = items.map(function(r){
@@ -2502,9 +2531,9 @@ function shareGreenhouseDay(ds){
 /* ============================ VERSIÓN ============================
    Cambiar APP_VERSION en cada entrega. La app revisa cada 5 minutos si hay
    una versión publicada más nueva y muestra un aviso para recargar. */
-var APP_VERSION = "3.5";
-var APP_VERSION_DATE = "11-11-2026 21:50";
-var APP_VERSION_NOTES = "Real invernadero (solicitado vs. real) · corrige contratos duplicados al cambiar de fieldman";
+var APP_VERSION = "3.7";
+var APP_VERSION_DATE = "11-11-2026 22:50";
+var APP_VERSION_NOTES = "Solicitud de trilladoras Nogueira · Real invernadero (solicitado vs. real)";
 function showVersion(){
   var v = document.getElementById("appVersion");
   if(v) v.textContent = "v" + APP_VERSION;
@@ -2596,6 +2625,294 @@ function histRowHtml(d, ds, compact){
   if(isAdmin()) h += '<a href="#" onclick="reopenDispatch(\'' + d.id + '\');return false;">↩ Reabrir</a>';
   return h + '</div></div>';
 }
+/* ===================== TRILLADORAS NOGUEIRA: solicitud, traslado y control ===================== */
+var TRILL_ACC_DEFAULT = ["Cardán", "Harneros", "Correas de repuesto", "Manual / herramientas"];
+var TRILL_TRASLADO = {"": "Por definir", "carro_camioneta": "Carro con camioneta", "camion": "Camión"};
+var TRILL_ESTADO = {solicitada: ["Solicitada", "w"], terreno: ["En terreno", "b"], retirada: ["Retirada", "g"], cancelada: ["Cancelada", ""]};
+var _trillEdit = null, _trillFiltro = "activas", _trillAdmin = false;
+function trillCfg(){
+  var c = state.trillCfg || {};
+  var pn = {}; Object.keys(c.porNumero || {}).forEach(function(k){ pn[k] = (c.porNumero[k] || []).slice(); });
+  return {numeros: (c.numeros || []).slice(), accesorios: (c.accesorios && c.accesorios.length ? c.accesorios : TRILL_ACC_DEFAULT).slice(), porNumero: pn};
+}
+function _trillKey(n){ return String(n == null ? "" : n).trim().toUpperCase(); }
+/* Accesorios predeterminados de una trilladora (null si ese número aún no tiene definidos) */
+function trillAccDe(numero){
+  var pn = trillCfg().porNumero, k = _trillKey(numero), hit = null;
+  Object.keys(pn).forEach(function(x){ if(_trillKey(x) === k) hit = pn[x]; });
+  return hit;
+}
+/* Al escribir/elegir el número, se marcan solos los accesorios de esa trilladora */
+function trillNumChange(){
+  var num = document.getElementById("tr_num").value, acc = trillAccDe(num), hint = document.getElementById("tr_acchint");
+  if(acc){
+    Array.prototype.forEach.call(document.querySelectorAll(".tr_acc"), function(c){ c.checked = acc.indexOf(c.value) >= 0; });
+    if(hint) hint.textContent = "Accesorios predeterminados de la trilladora N° " + num.trim() + (acc.length ? "" : " (ninguno definido)");
+  } else if(hint){ hint.textContent = num.trim() ? "Trilladora sin accesorios predeterminados: marque los que lleva" : ""; }
+}
+function trillSaveCfg(c){
+  state.trillCfg = c;
+  if(storageMode === "firebase" && FBApi.isAvailable()) return FBApi.setDocument("config", "trilladoras", {numeros: c.numeros, accesorios: c.accesorios, porNumero: c.porNumero || {}, updatedAt: new Date().toISOString(), updatedBy: currentUser});
+  return Promise.resolve();
+}
+function trillPedidos(){ return state.trillPedidos || []; }
+function trillActiva(p){ return p.estado === "solicitada" || p.estado === "terreno"; }
+function trillPuedeEditar(p){ return isAdmin() || normalizeUser(p.user) === normalizeUser(currentUser); }
+/* Otra solicitud activa de la misma trilladora que se cruza en fechas */
+function trillChoque(numero, desde, hasta, exceptId){
+  var n = String(numero).trim().toUpperCase(), fin = hasta || "9999-12-31";
+  return trillPedidos().filter(function(p){
+    if(p.id === exceptId || !trillActiva(p)) return false;
+    if(String(p.numero).trim().toUpperCase() !== n) return false;
+    var pf = p.hasta || "9999-12-31";
+    return p.desde <= fin && desde <= pf;
+  });
+}
+function trillRefresh(){
+  var b = document.getElementById("trillBadge");
+  if(b){
+    var n = trillPedidos().filter(function(p){ return p.estado === "solicitada"; }).length;
+    b.textContent = (isAdmin() && n) ? "(" + n + ")" : "";
+  }
+  var ov = document.getElementById("ovTrill");
+  if(ov && ov.classList.contains("show") && !_trillTyping() && !_trillAdmin) renderTrill();
+  if(selDate) { try{ renderPanel(); }catch(e){} }
+}
+function _trillTyping(){ var a = document.activeElement; return !!(a && a.closest && a.closest("#trillForm")); }
+function openTrill(){ _trillEdit = null; _trillAdmin = false; document.getElementById("ovTrill").classList.add("show"); renderTrill(); }
+function renderTrill(){
+  var cfg = trillCfg(), body = document.getElementById("trillBody");
+  if(_trillAdmin && isAdmin()){ body.innerHTML = trillAdminHtml(cfg); return; }
+  var e = _trillEdit ? trillPedidos().filter(function(p){ return p.id === _trillEdit; })[0] : null;
+  var hoy = todayStr();
+  var acc = e ? (e.accesorios || []) : ["Cardán"];
+  var nums = cfg.numeros.slice().sort(function(a,b){ return String(a).localeCompare(String(b), undefined, {numeric: true}); });
+  var h = '<div class="tform" id="trillForm">'
+    + '<div><label>N° de trilladora *</label><input id="tr_num" list="tr_nums" value="' + esc(e ? e.numero : "") + '" placeholder="Ej: 12" autocomplete="off" oninput="trillNumChange()" onchange="trillNumChange()">'
+    + '<datalist id="tr_nums">' + nums.map(function(n){ return '<option value="' + esc(n) + '">'; }).join("") + '</datalist></div>'
+    + '<div style="grid-column:span 2"><label>Agricultor *</label><input id="tr_agr" list="tr_agrs" value="' + esc(e ? e.farmerName : "") + '" placeholder="Escriba para buscar…" autocomplete="off">'
+    + '<datalist id="tr_agrs">' + (state.farmers || []).map(function(f){ return '<option value="' + esc(f.name) + '">' + esc(f.comuna || "") + '</option>'; }).join("") + '</datalist></div>'
+    + '<div><label>Fecha de entrega *</label><input type="date" id="tr_desde" value="' + esc(e ? e.desde : hoy) + '"></div>'
+    + '<div><label>Retiro estimado</label><input type="date" id="tr_hasta" value="' + esc(e ? (e.hasta || "") : "") + '"></div>'
+    + '<div><label>Traslado</label><select id="tr_tras">' + Object.keys(TRILL_TRASLADO).map(function(k){ return '<option value="' + k + '"' + ((e ? e.traslado || "" : "") === k ? " selected" : "") + '>' + TRILL_TRASLADO[k] + '</option>'; }).join("") + '</select></div>'
+    + '<div><label>SPS / contrato (opcional)</label><input id="tr_sps" value="' + esc(e ? e.sps || "" : "") + '" placeholder="Ej: BAO1064 · 7707"></div>'
+    + '<div style="grid-column:1/-1"><label>Accesorios que van con la trilladora <span id="tr_acchint" style="color:#1F5BA6;font-weight:700"></span></label><div class="tacc">'
+    + cfg.accesorios.map(function(a){ return '<label><input type="checkbox" class="tr_acc" value="' + esc(a) + '"' + (acc.indexOf(a) >= 0 ? " checked" : "") + '> ' + esc(a) + '</label>'; }).join("")
+    + '</div></div>'
+    + '<div style="grid-column:1/-1"><label>Observación</label><input id="tr_obs" maxlength="300" value="' + esc(e ? e.obs || "" : "") + '" placeholder="Ej: dejar en bodega del agricultor, contacto en terreno…"></div>'
+    + '<div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+    + '<button class="btn primary" onclick="trillSave()">' + (e ? "💾 Guardar cambios" : "➕ Solicitar trilladora") + '</button>'
+    + (e ? '<button class="btn ghost sm" onclick="_trillEdit=null;renderTrill()">Cancelar edición</button>' : '')
+    + (isAdmin() ? '<button class="btn ghost sm" onclick="_trillAdmin=true;renderTrill()">⚙ Trilladoras y accesorios</button>' : '')
+    + '<span id="tr_msg" class="hint"></span></div></div>';
+
+  var all = trillPedidos().slice().sort(function(a,b){ return a.desde < b.desde ? 1 : (a.desde > b.desde ? -1 : 0); });
+  var list = all.filter(function(p){ return _trillFiltro === "todas" ? true : (_trillFiltro === "activas" ? trillActiva(p) : p.estado === _trillFiltro); });
+  var cnt = function(f){ return all.filter(f).length; };
+  h += '<div class="hfilters" style="margin-bottom:6px">'
+    + [["activas","Activas (" + cnt(trillActiva) + ")"],["solicitada","Por entregar (" + cnt(function(p){return p.estado==="solicitada";}) + ")"],["terreno","En terreno (" + cnt(function(p){return p.estado==="terreno";}) + ")"],["retirada","Retiradas"],["todas","Todas"]]
+      .map(function(f){ return '<button class="btn ' + (_trillFiltro === f[0] ? "primary" : "ghost") + ' sm" onclick="_trillFiltro=\'' + f[0] + '\';renderTrill()">' + f[1] + '</button>'; }).join("")
+    + '<button class="btn success sm" style="margin-left:auto" onclick="trillExport()">📊 Excel</button></div>';
+  h += list.length ? list.map(trillCardHtml).join("") : '<div class="empty">No hay solicitudes de trilladora' + (_trillFiltro === "todas" ? "" : " con este filtro") + '.</div>';
+  body.innerHTML = h;
+}
+function trillCardHtml(p){
+  var est = TRILL_ESTADO[p.estado] || ["?", ""], hoy = todayStr();
+  var atras = p.estado === "terreno" && p.hasta && p.hasta < hoy;
+  var dias = p.estado === "terreno" && p.entregadaAt ? Math.max(0, Math.round((new Date() - new Date(p.entregadaAt)) / 86400000)) : null;
+  var h = '<div class="tcard e_' + esc(p.estado) + '"><div class="th">'
+    + '<span class="tn">🚜 N° ' + esc(p.numero) + '</span><span class="tchip ' + est[1] + '">' + est[0] + '</span>'
+    + (atras ? '<span class="tchip r">⚠ Pasó la fecha de retiro</span>' : '')
+    + (dias != null ? '<span class="tchip">' + dias + ' día' + (dias === 1 ? "" : "s") + ' en terreno</span>' : '')
+    + (!p.traslado && trillActiva(p) ? '<span class="tchip w">Traslado por definir</span>' : '')
+    + '</div>'
+    + '<div style="margin-top:4px"><strong>' + esc(p.farmerName || "—") + '</strong>' + (p.comuna ? ' · ' + esc(p.comuna) : '') + '</div>'
+    + '<div class="hint">📅 Entrega ' + _dmy(p.desde) + (p.hasta ? ' · retiro estimado ' + _dmy(p.hasta) : ' · sin fecha de retiro')
+    + ' · 🚚 ' + (TRILL_TRASLADO[p.traslado || ""]) + ' · 👤 ' + esc(p.user || "") + (p.sps ? ' · 🌱 ' + esc(p.sps) : '') + '</div>'
+    + '<div class="hint">🔧 ' + ((p.accesorios || []).length ? esc(p.accesorios.join(", ")) : "Sin accesorios") + (p.obs ? ' · 📝 ' + esc(p.obs) : '') + '</div>';
+  var id = "'" + p.id + "'", btn = [];
+  if(isAdmin() && p.estado === "solicitada") btn.push('<button class="btn primary sm" onclick="trillEstado(' + id + ',\'terreno\')">✔ Entregada en terreno</button>');
+  if(isAdmin() && p.estado === "terreno") btn.push('<button class="btn success sm" onclick="trillEstado(' + id + ',\'retirada\')">↩ Retirada / devuelta</button>');
+  if(isAdmin() && trillActiva(p)) btn.push('<select style="width:auto;padding:5px 8px;font-size:13px" onchange="trillTraslado(' + id + ',this.value)" title="Traslado">' + Object.keys(TRILL_TRASLADO).map(function(k){ return '<option value="' + k + '"' + ((p.traslado || "") === k ? " selected" : "") + '>🚚 ' + TRILL_TRASLADO[k] + '</option>'; }).join("") + '</select>');
+  if(canShareToDriver() && trillActiva(p)) btn.push('<a href="#" class="wa-share" onclick="trillWhatsApp(' + id + ');return false;">' + waSvg() + 'WhatsApp</a>');
+  if(trillPuedeEditar(p) && p.estado === "solicitada") btn.push('<button class="btn ghost sm" onclick="_trillEdit=' + id + ';renderTrill();document.getElementById(\'trillBody\').scrollTop=0">✎ Editar</button>');
+  if(trillPuedeEditar(p) && p.estado === "solicitada") btn.push('<button class="btn ghost sm" onclick="trillEstado(' + id + ',\'cancelada\')">✕ Cancelar</button>');
+  if(isAdmin() && (p.estado === "retirada" || p.estado === "cancelada")) btn.push('<button class="btn ghost sm" onclick="trillDelete(' + id + ')">🗑 Eliminar</button>');
+  return h + (btn.length ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">' + btn.join("") + '</div>' : '') + '</div>';
+}
+function trillSave(){
+  var msg = document.getElementById("tr_msg"), g = function(id){ return document.getElementById(id).value.trim(); };
+  var numero = g("tr_num"), agr = g("tr_agr"), desde = g("tr_desde"), hasta = g("tr_hasta");
+  if(!numero){ msg.textContent = "⚠ Indique el N° de trilladora."; return; }
+  if(!agr){ msg.textContent = "⚠ Indique el agricultor."; return; }
+  if(!desde){ msg.textContent = "⚠ Indique la fecha de entrega."; return; }
+  if(hasta && hasta < desde){ msg.textContent = "⚠ El retiro no puede ser antes de la entrega."; return; }
+  var choque = trillChoque(numero, desde, hasta, _trillEdit);
+  if(choque.length){
+    var c = choque[0];
+    if(!confirm("⚠ La trilladora N° " + numero + " ya está " + (c.estado === "terreno" ? "en terreno" : "solicitada") + " para " + c.farmerName
+      + " (" + _dmy(c.desde) + (c.hasta ? " al " + _dmy(c.hasta) : ", sin fecha de retiro") + "), pedida por " + c.user + ".\n\n¿Guardar de todas formas?")) return;
+  }
+  var f = (state.farmers || []).filter(function(x){ return normTxt(x.name) === normTxt(agr); })[0];
+  var data = {numero: numero, farmerName: f ? f.name : agr, farmerId: f ? f.id : "", comuna: f ? (f.comuna || "") : "", direccion: f ? (f.address || "") : "",
+    telefono: f ? (f.phone || "") : "", mapsUrl: f ? (f.mapsUrl || "") : "",
+    desde: desde, hasta: hasta, traslado: g("tr_tras"), sps: g("tr_sps"), obs: g("tr_obs"),
+    accesorios: Array.prototype.map.call(document.querySelectorAll(".tr_acc:checked"), function(x){ return x.value; }),
+    updatedAt: new Date().toISOString(), updatedBy: currentUser};
+  // El número nuevo queda en la lista para la próxima vez
+  var cfg = trillCfg();
+  if(!cfg.numeros.some(function(n){ return _trillKey(n) === _trillKey(numero); })){ cfg.numeros.push(numero); trillSaveCfg(cfg).catch(function(){}); }
+  var fb = storageMode === "firebase" && FBApi.isAvailable(), job;
+  if(_trillEdit){
+    var id = _trillEdit;
+    trillPedidos().forEach(function(p){ if(p.id === id) Object.assign(p, data); });
+    job = fb ? FBApi.updateDocument("trilladoraPedidos", id, data) : Promise.resolve();
+  } else {
+    Object.assign(data, {estado: "solicitada", user: currentUser, createdAt: new Date().toISOString()});
+    if(fb) job = FBApi.addDocument("trilladoraPedidos", data);
+    else { state.trillPedidos = trillPedidos().concat([Object.assign({id: "t" + Date.now()}, data)]); job = Promise.resolve(); }
+  }
+  _trillEdit = null;
+  job.then(function(){ renderTrill(); var m = document.getElementById("tr_msg"); if(m) m.textContent = "✅ Solicitud guardada"; trillRefresh(); })
+     .catch(function(err){ alert("❌ No se pudo guardar la solicitud: " + err.message); });
+}
+function _trillUpd(id, upd){
+  trillPedidos().forEach(function(p){ if(p.id === id) Object.assign(p, upd); });
+  var job = (storageMode === "firebase" && FBApi.isAvailable()) ? FBApi.updateDocument("trilladoraPedidos", id, upd) : Promise.resolve();
+  job.catch(function(e){ alert("❌ No se pudo guardar: " + e.message); });
+  renderTrill(); trillRefresh();
+}
+function trillEstado(id, estado){
+  var p = trillPedidos().filter(function(x){ return x.id === id; })[0]; if(!p) return;
+  var now = new Date().toISOString(), upd = {estado: estado, updatedAt: now, updatedBy: currentUser};
+  if(estado === "terreno"){
+    if(!p.traslado && !confirm("Aún no se define el traslado (carro con camioneta o camión). ¿Marcar como entregada igual?")) return;
+    upd.entregadaAt = now;
+  }
+  if(estado === "retirada"){
+    var acc = (p.accesorios || []);
+    if(!confirm("¿Confirmar retiro de la trilladora N° " + p.numero + " desde " + p.farmerName + "?" + (acc.length ? "\n\nVerifique que vuelven: " + acc.join(", ") + "." : ""))) return;
+    var falta = prompt("¿Faltó o volvió dañado algún accesorio? (deje vacío si todo volvió bien)", "");
+    if(falta === null) return;
+    upd.retiradaAt = now; upd.retiroObs = falta.trim();
+  }
+  if(estado === "cancelada" && !confirm("¿Cancelar la solicitud de la trilladora N° " + p.numero + " para " + p.farmerName + "?")) return;
+  _trillUpd(id, upd);
+}
+function trillTraslado(id, v){ _trillUpd(id, {traslado: v, updatedAt: new Date().toISOString(), updatedBy: currentUser}); }
+function trillDelete(id){
+  if(!isAdmin() || !confirm("¿Eliminar esta solicitud del registro? No se puede deshacer.")) return;
+  state.trillPedidos = trillPedidos().filter(function(p){ return p.id !== id; });
+  if(storageMode === "firebase" && FBApi.isAvailable()) FBApi.deleteDocument("trilladoraPedidos", id).catch(function(e){ alert("❌ " + e.message); });
+  renderTrill();
+}
+/* --- Logística: catálogo de trilladoras con sus accesorios predeterminados --- */
+function _trillNumsSorted(cfg){ return cfg.numeros.slice().sort(function(a,b){ return String(a).localeCompare(String(b), undefined, {numeric: true}); }); }
+function trillAdminHtml(cfg){
+  var nums = _trillNumsSorted(cfg);
+  var h = '<div class="hint" style="margin-bottom:10px">Marque los accesorios que <strong>siempre van</strong> con cada trilladora. Cuando un fieldman elija ese número, aparecerán marcados solos (puede ajustarlos si en esa salida va algo distinto).</div>'
+    + '<div style="overflow:auto;border:1px solid var(--line,#d8e0ea);border-radius:8px"><table class="rtab" style="min-width:0"><thead><tr><th>N° trilladora</th>'
+    + cfg.accesorios.map(function(a){ return '<th style="text-align:center">' + esc(a) + '</th>'; }).join("") + '<th></th></tr></thead><tbody id="tadmRows">'
+    + (nums.length ? nums.map(function(n){
+        var acc = cfg.porNumero[n] || (trillAccDe(n) || ["Cardán"]);
+        return '<tr data-num="' + esc(n) + '"><td><strong>🚜 N° ' + esc(n) + '</strong></td>'
+          + cfg.accesorios.map(function(a){ return '<td style="text-align:center"><input type="checkbox" style="width:auto" value="' + esc(a) + '"' + (acc.indexOf(a) >= 0 ? " checked" : "") + '></td>'; }).join("")
+          + '<td><button class="btn ghost sm" onclick="trillAdmDel(this)" title="Quitar esta trilladora de la lista">🗑</button></td></tr>';
+      }).join("") : '<tr><td colspan="' + (cfg.accesorios.length + 2) + '" style="padding:14px;text-align:center" class="empty">Aún no hay trilladoras. Agregue la primera abajo.</td></tr>')
+    + '</tbody></table></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">'
+    + '<input id="tadm_new" placeholder="N° nuevo (ej: 12)" style="width:160px" onkeydown="if(event.key===\'Enter\')trillAdmAdd()"><button class="btn ghost sm" onclick="trillAdmAdd()">➕ Agregar trilladora</button>'
+    + '<button class="btn ghost sm" onclick="trillEditAcc()">✎ Cambiar lista de accesorios</button></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center">'
+    + '<button class="btn primary" onclick="trillAdmSave(true)">💾 Guardar</button><button class="btn ghost sm" onclick="_trillAdmin=false;renderTrill()">← Volver a solicitudes</button><span id="tadm_msg" class="hint"></span></div>';
+  return h;
+}
+/* Lee la tabla tal como está en pantalla */
+function _trillAdmRead(){
+  var cfg = trillCfg(), nums = [], pn = {};
+  Array.prototype.forEach.call(document.querySelectorAll("#tadmRows tr[data-num]"), function(tr){
+    var n = tr.getAttribute("data-num"); nums.push(n);
+    pn[n] = Array.prototype.map.call(tr.querySelectorAll("input:checked"), function(c){ return c.value; });
+  });
+  cfg.numeros = nums; cfg.porNumero = pn;
+  return cfg;
+}
+function trillAdmSave(volver){
+  var cfg = _trillAdmRead();
+  return trillSaveCfg(cfg).then(function(){
+    if(volver){ _trillAdmin = false; renderTrill(); var m = document.getElementById("tr_msg"); if(m) m.textContent = "✅ Trilladoras y accesorios guardados"; }
+  }).catch(function(e){ alert("❌ No se pudo guardar: " + e.message); });
+}
+function trillAdmAdd(){
+  var inp = document.getElementById("tadm_new"), n = inp.value.trim(), msg = document.getElementById("tadm_msg");
+  if(!n){ inp.focus(); return; }
+  var cfg = _trillAdmRead();
+  if(cfg.numeros.some(function(x){ return _trillKey(x) === _trillKey(n); })){ msg.textContent = "⚠ Esa trilladora ya está en la lista."; return; }
+  cfg.numeros.push(n); cfg.porNumero[n] = ["Cardán"].filter(function(a){ return cfg.accesorios.indexOf(a) >= 0; });
+  state.trillCfg = cfg; renderTrill();
+  var i2 = document.getElementById("tadm_new"); if(i2) i2.focus();
+  document.getElementById("tadm_msg").textContent = "Agregada N° " + n + " · presione Guardar";
+}
+function trillAdmDel(btn){
+  var tr = btn.closest("tr"), n = tr.getAttribute("data-num");
+  if(trillPedidos().some(function(p){ return trillActiva(p) && _trillKey(p.numero) === _trillKey(n); })){ alert("La trilladora N° " + n + " tiene una solicitud activa. Ciérrela antes de quitarla de la lista."); return; }
+  if(!confirm("¿Quitar la trilladora N° " + n + " de la lista? (El historial de solicitudes no se borra.)")) return;
+  tr.remove(); state.trillCfg = _trillAdmRead(); renderTrill();
+  document.getElementById("tadm_msg").textContent = "Quitada N° " + n + " · presione Guardar";
+}
+function trillEditAcc(){
+  var cfg = document.getElementById("tadmRows") ? _trillAdmRead() : trillCfg();
+  var v = prompt("Accesorios posibles, separados por coma:", cfg.accesorios.join(", "));
+  if(v === null) return;
+  var l = v.split(",").map(function(x){ return x.trim(); }).filter(Boolean);
+  if(!l.length){ alert("Debe quedar al menos un accesorio."); return; }
+  cfg.accesorios = l;
+  Object.keys(cfg.porNumero).forEach(function(k){ cfg.porNumero[k] = cfg.porNumero[k].filter(function(a){ return l.indexOf(a) >= 0; }); });
+  state.trillCfg = cfg; renderTrill();
+  var m = document.getElementById("tadm_msg"); if(m) m.textContent = "Lista de accesorios cambiada · presione Guardar";
+}
+function trillWhatsApp(id){
+  var p = trillPedidos().filter(function(x){ return x.id === id; })[0]; if(!p) return;
+  var retiro = p.estado === "terreno";
+  var L = ["🚜 *" + (retiro ? "RETIRO" : "TRASLADO") + " DE TRILLADORA · SPS CHILE*", "", "🔢 *Trilladora Nogueira N° " + p.numero + "*",
+    "🚚 Traslado: " + TRILL_TRASLADO[p.traslado || ""], "", "🌾 *" + (p.farmerName || "—") + "*"];
+  if(p.direccion || p.comuna) L.push("📍 " + [p.direccion, p.comuna].filter(Boolean).join(", "));
+  if(p.mapsUrl && /^https:\/\//.test(p.mapsUrl)) L.push("🧭 " + p.mapsUrl);
+  if(p.telefono) L.push("📞 " + p.telefono);
+  L.push("", "📅 " + (retiro ? "Retirar" + (p.hasta ? ": " + dayLong(p.hasta) : " (coordinar fecha)") : "Entregar: " + dayLong(p.desde)));
+  if(!retiro && p.hasta) L.push("↩ Retiro estimado: " + _dmy(p.hasta));
+  L.push("🔧 " + (retiro ? "Debe volver con: " : "Lleva: ") + ((p.accesorios || []).join(", ") || "sin accesorios"));
+  L.push("👤 Solicitó: " + (p.user || ""));
+  if(p.obs) L.push("📝 " + p.obs);
+  _shareText(L.join("\n"));
+}
+/* Línea en el panel del día: trilladoras que se entregan o retiran esa fecha */
+function trillDayHtml(ds){
+  var ent = trillPedidos().filter(function(p){ return trillActiva(p) && p.desde === ds && p.estado === "solicitada"; });
+  var ret = trillPedidos().filter(function(p){ return p.estado === "terreno" && p.hasta === ds; });
+  if(!ent.length && !ret.length) return "";
+  var li = function(p, t){ return '<div style="font-size:13px">' + t + ' <strong>N° ' + esc(p.numero) + '</strong> · ' + esc(p.farmerName) + ' <span class="hint">(' + TRILL_TRASLADO[p.traslado || ""] + ')</span></div>'; };
+  return '<div class="tk" style="border-left:4px solid #1F5BA6;cursor:pointer" onclick="openTrill()"><div class="tkhead"><span class="tkname">🚜 Trilladoras este día</span></div>'
+    + ent.map(function(p){ return li(p, "➡ Entregar"); }).join("") + ret.map(function(p){ return li(p, "↩ Retirar"); }).join("") + '</div>';
+}
+function trillExport(){
+  var rows = trillPedidos();
+  if(!rows.length){ alert("No hay solicitudes de trilladora."); return; }
+  if(typeof ExcelJS === "undefined"){ alert("ExcelJS no está disponible. No se puede generar el Excel."); return; }
+  var wb = new ExcelJS.Workbook(), ws = wb.addWorksheet("Trilladoras", {views: [{state: "frozen", ySplit: 1}]});
+  ws.columns = [["N° trilladora",12],["Estado",13],["Agricultor",34],["Comuna",16],["Entrega",12],["Retiro estimado",12],["Entregada el",14],["Retirada el",14],["Días en terreno",10],["Traslado",20],["Accesorios",36],["SPS / contrato",18],["Solicitó",22],["Observación",34],["Obs. retiro",30]]
+    .map(function(c){ return {header: c[0], width: c[1]}; });
+  var h = ws.getRow(1); h.height = 30;
+  h.eachCell(function(c){ c.fill = {type: "pattern", pattern: "solid", fgColor: {argb: "FF14366E"}}; c.font = {bold: true, color: {argb: "FFFFFFFF"}}; c.alignment = {vertical: "middle", horizontal: "center", wrapText: true}; });
+  rows.slice().sort(function(a,b){ return String(a.numero).localeCompare(String(b.numero), undefined, {numeric: true}) || (a.desde < b.desde ? -1 : 1); }).forEach(function(p){
+    var d = p.entregadaAt ? Math.round(((p.retiradaAt ? new Date(p.retiradaAt) : new Date()) - new Date(p.entregadaAt)) / 86400000) : null;
+    ws.addRow([p.numero, (TRILL_ESTADO[p.estado] || [p.estado])[0], p.farmerName || "", p.comuna || "", _dmy(p.desde), _dmy(p.hasta), p.entregadaAt ? _dmy(p.entregadaAt.slice(0,10)) : "", p.retiradaAt ? _dmy(p.retiradaAt.slice(0,10)) : "",
+      d, TRILL_TRASLADO[p.traslado || ""], (p.accesorios || []).join(", "), p.sps || "", p.user || "", p.obs || "", p.retiroObs || ""]);
+  });
+  ws.autoFilter = {from: {row: 1, column: 1}, to: {row: 1, column: 15}};
+  wb.xlsx.writeBuffer().then(function(buf){ downloadBlob(new Blob([buf], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "TRILLADORAS_" + todayStrDDMMYYYY() + ".xlsx"); });
+}
+
 /* ===================== REAL INVERNADERO: solicitado vs. lo que salió de verdad ===================== */
 function _addDays(ymd, n){ var d = localDateFromYMD(ymd); d.setDate(d.getDate() + n); return d.getFullYear() + "-" + ("0"+(d.getMonth()+1)).slice(-2) + "-" + ("0"+d.getDate()).slice(-2); }
 function _dmy(ymd){ return String(ymd || "").split("-").reverse().join("-"); }
@@ -3090,6 +3407,7 @@ function renderDay(ds){
     + '<div class="bar"><i class="'+(pctDia>=85?"hot":"")+'" style="width:'+pctDia+'%"></i></div>'
     + '<div class="tkmeta"><span>' + (totDia > lim ? '⚠ Excede el límite en ' + fmtNum(totDia - lim) + ' bandejas: reagenda algún despacho'
         : 'Quedan ' + fmtNum(lim - totDia) + ' bandejas disponibles') + '</span></div></div>';
+  html += trillDayHtml(ds);
   // Truck utilization bars
   html += '<div class="trucks">';
   state.config.trucks.forEach(function(t){
