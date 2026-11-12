@@ -256,6 +256,7 @@
   #realBody .hfilters label{white-space:nowrap} #realBody .hfilters input[type=checkbox]{width:auto;margin:0}
   #realBody #r_q{flex:1;min-width:200px;width:auto}
   .tcard{border:1px solid var(--line,#d8e0ea);border-radius:10px;padding:10px 12px;margin:8px 0;background:#fff}
+  .tcard.e_solicitado{border-left:5px solid #b06a00} .tcard.e_despachado{border-left:5px solid #2e7d52;opacity:.85} .tcard.e_cancelado{border-left:5px solid #999;opacity:.6}
   .tcard.e_solicitada{border-left:5px solid #b06a00} .tcard.e_terreno{border-left:5px solid #1F5BA6} .tcard.e_retirada{border-left:5px solid #2e7d52;opacity:.8} .tcard.e_cancelada{border-left:5px solid #999;opacity:.6}
   .tcard .th{display:flex;gap:8px;align-items:center;flex-wrap:wrap} .tcard .tn{font-size:16px;font-weight:800;color:var(--navy,#14366E)}
   .tchip{font-size:11px;font-weight:700;border-radius:20px;padding:2px 9px;background:#eef2f8;color:#14366E} .tchip.w{background:#fff4e2;color:#b06a00} .tchip.b{background:#e3eefb;color:#1F5BA6} .tchip.g{background:#e6f3ec;color:#2e7d52} .tchip.r{background:#fbe9e7;color:#b3261e}
@@ -609,6 +610,8 @@
       <button class="btn ghost sm" onclick="openHistory()" title="Despachos finalizados">📚 Historial</button>
       <button class="btn ghost sm" id="t_breal" onclick="openReal()" style="display:none" title="Digitar lo que realmente salió del invernadero (cuaderno) y cruzarlo con lo solicitado">📓 Real invernadero</button>
       <button class="btn warn sm" onclick="openReturnsPanel()" title="Registrar bandejas devueltas por los agricultores">📦 Recuperación de bandejas</button>
+      <button class="btn ghost sm" onclick="openBunch()" title="Solicitudes de bunching (almácigo en mallas) por variedad">🌿 Bunching <span id="bunchBadge"></span></button>
+      <input type="file" id="impBunch" accept=".xlsx,.xls" style="display:none" onchange="bunchImport(event)">
       <button class="btn ghost sm" onclick="openTrill()" title="Solicitud y control de trilladoras Nogueira">🚜 Trilladoras <span id="trillBadge"></span></button>
       <button class="btn ghost sm" onclick="openConfig()" id="t_bcfg">Configuración</button>
       <button class="btn ghost sm" onclick="openFarmers()" id="t_bfarm">Agricultores</button>
@@ -668,6 +671,15 @@
     <button class="x" onclick="closeOv('ovHist')">×</button>
   </div>
   <div class="mb" id="histBody"></div>
+</div></div>
+
+<!-- Bunching -->
+<div class="ov" id="ovBunch"><div class="modal" style="max-width:1080px">
+  <div class="mh">
+    <h3>🌿 Bunching · solicitudes de despacho</h3>
+    <button class="x" onclick="closeOv('ovBunch')">×</button>
+  </div>
+  <div class="mb" id="bunchBody"></div>
 </div></div>
 
 <!-- Trilladoras Nogueira -->
@@ -1398,6 +1410,18 @@ function setupRealtimeSync(){
     autoFinalizeFromEntregas();
     if(currentUser && selDate) renderPanel();
   }));
+
+  // === Bunching: solicitudes y variedades ===
+  _realtimeUnsubs.push(FBApi.subscribeCollection("bunchingPedidos", function(items){
+    state.bunchPedidos = items.map(function(r){ return Object.assign({}, r, {id: r._id}); });
+    if(currentUser){ bunchRefresh(); }
+  }, function(){}));
+  if(typeof FBApi.subscribeConfig === "function"){
+    _realtimeUnsubs.push(FBApi.subscribeConfig("bunching", function(cfg){
+      state.bunchCfg = cfg || null;
+      if(currentUser){ bunchRefresh(); }
+    }));
+  }
 
   // === Trilladoras: solicitudes y catálogo ===
   _realtimeUnsubs.push(FBApi.subscribeCollection("trilladoraPedidos", function(items){
@@ -2531,9 +2555,9 @@ function shareGreenhouseDay(ds){
 /* ============================ VERSIÓN ============================
    Cambiar APP_VERSION en cada entrega. La app revisa cada 5 minutos si hay
    una versión publicada más nueva y muestra un aviso para recargar. */
-var APP_VERSION = "3.7";
-var APP_VERSION_DATE = "11-11-2026 22:50";
-var APP_VERSION_NOTES = "Solicitud de trilladoras Nogueira · Real invernadero (solicitado vs. real)";
+var APP_VERSION = "3.8";
+var APP_VERSION_DATE = "11-11-2026 23:30";
+var APP_VERSION_NOTES = "Solicitudes de bunching · trilladoras Nogueira · Real invernadero";
 function showVersion(){
   var v = document.getElementById("appVersion");
   if(v) v.textContent = "v" + APP_VERSION;
@@ -2625,6 +2649,413 @@ function histRowHtml(d, ds, compact){
   if(isAdmin()) h += '<a href="#" onclick="reopenDispatch(\'' + d.id + '\');return false;">↩ Reabrir</a>';
   return h + '</div></div>';
 }
+/* ===================== BUNCHING: solicitudes de almácigo en mallas, por variedad ===================== */
+var BUNCH_LINEA = {F: "Hembra", M: "Macho", OP: "OP"};
+var BUNCH_COLOR = {F: "ROJO/AMARILLO", M: "AZUL/BLANCO", OP: "AZUL/BLANCO"};   // malla roja + etiqueta amarilla = hembra · malla azul + etiqueta blanca = macho y OP
+var BUNCH_FM_DEFAULT = {CSC: "Claudio Stockebrand", IPL: "Ignacio Poblete L.", RRA: "Rafael Reveco A.", RRG: "Rafael Rebolledo"};
+var BUNCH_ESTADO = {solicitado: ["Solicitado", "w"], despachado: ["Despachado", "g"], cancelado: ["Cancelado", ""]};
+var _bunchEdit = null, _bunchFiltro = "solicitado", _bunchAdmin = false, _bunchFecha = "", _bunchTodas = false;
+function bunchCfg(){
+  var c = state.bunchCfg || {};
+  var fm = {}; Object.keys(BUNCH_FM_DEFAULT).forEach(function(k){ fm[k] = BUNCH_FM_DEFAULT[k]; });
+  Object.keys(state.fmMapping || {}).forEach(function(k){ fm[k.toUpperCase()] = state.fmMapping[k]; });
+  Object.keys(c.fmMap || {}).forEach(function(k){ fm[k.toUpperCase()] = c.fmMap[k]; });
+  return {variedades: (c.variedades || []).slice(), almacigueras: (c.almacigueras && c.almacigueras.length ? c.almacigueras : ["Paine", "Los Olmos"]).slice(),
+    fmMap: fm, fmMapOwn: c.fmMap || {}, reporte: c.reporte || "", reporteAt: c.reporteAt || ""};
+}
+function bunchSaveCfg(c){
+  var doc = {variedades: c.variedades, almacigueras: c.almacigueras, fmMap: c.fmMapOwn || {}, reporte: c.reporte || "", reporteAt: c.reporteAt || "", updatedAt: new Date().toISOString(), updatedBy: currentUser};
+  state.bunchCfg = doc;
+  if(storageMode === "firebase" && FBApi.isAvailable()) return FBApi.setDocument("config", "bunching", doc);
+  return Promise.resolve();
+}
+function _bunchKey(c){ return String(c == null ? "" : c).replace(/\s+/g, "").toUpperCase(); }
+function bunchPedidos(){ return state.bunchPedidos || []; }
+function bunchMisFM(){
+  var m = bunchCfg().fmMap, out = [];
+  Object.keys(m).forEach(function(k){ if(normalizeUser(m[k]) === normalizeUser(currentUser)) out.push(k); });
+  return out;
+}
+/* Variedades que ve el usuario: logística todas; el fieldman, las asignadas a él en el reporte */
+function bunchVisibles(){
+  var v = bunchCfg().variedades;
+  if(isAdmin() || _bunchTodas) return v;
+  var mine = bunchMisFM();
+  var f = v.filter(function(x){ return (x.fm || []).some(function(c){ return mine.indexOf(String(c).toUpperCase()) >= 0; }); });
+  return f;
+}
+function bunchVar(sps){ var k = _bunchKey(sps); return bunchCfg().variedades.filter(function(v){ return _bunchKey(v.sps) === k; })[0] || null; }
+function bunchPuedeEditar(p){ return isAdmin() || normalizeUser(p.user) === normalizeUser(currentUser); }
+function bunchPedidosVisibles(){
+  if(isAdmin()) return bunchPedidos();
+  var mine = bunchMisFM();
+  return bunchPedidos().filter(function(p){ return normalizeUser(p.user) === normalizeUser(currentUser) || mine.indexOf(String(p.fm || "").toUpperCase()) >= 0; });
+}
+function bunchRefresh(){
+  var b = document.getElementById("bunchBadge");
+  if(b){ var n = bunchPedidos().filter(function(p){ return p.estado === "solicitado"; }).length; b.textContent = (isAdmin() && n) ? "(" + n + ")" : ""; }
+  var ov = document.getElementById("ovBunch"), a = document.activeElement;
+  if(ov && ov.classList.contains("show") && !(a && a.closest && a.closest("#bunchForm")) && !_bunchAdmin) renderBunch();
+  if(selDate){ try{ renderPanel(); }catch(e){} }
+}
+function openBunch(){ _bunchEdit = null; _bunchAdmin = false; document.getElementById("ovBunch").classList.add("show"); renderBunch(); }
+function _bn(v){ var n = parseFloat(String(v == null ? "" : v).replace(/\./g, "").replace(",", ".")); return isNaN(n) ? 0 : n; }
+function _bdec(v){ var n = parseFloat(String(v == null ? "" : v).replace(",", ".")); return isNaN(n) ? 0 : n; }
+
+function renderBunch(){
+  var cfg = bunchCfg(), body = document.getElementById("bunchBody");
+  if(_bunchAdmin && isAdmin()){ body.innerHTML = bunchAdminHtml(cfg); return; }
+  var e = _bunchEdit ? bunchPedidos().filter(function(p){ return p.id === _bunchEdit; })[0] : null;
+  var vars = bunchVisibles().slice().sort(function(a,b){ return String(a.sps).localeCompare(String(b.sps), undefined, {numeric: true}); });
+  var h = "";
+  if(!cfg.variedades.length){
+    h += '<div style="margin-bottom:10px;padding:9px 12px;background:#fff4e2;border:1px solid #f0d9ab;border-radius:8px;font-size:13px;color:#7a4b00">Aún no se ha cargado el reporte de bunching con las variedades. '
+      + (isAdmin() ? 'Use <strong>⚙ Variedades y reporte</strong> para subirlo.' : 'Logística debe subirlo; mientras tanto puede escribir el código SPS a mano.') + '</div>';
+  }
+  var v = function(k, d){ return esc(e && e[k] != null ? e[k] : (d == null ? "" : d)); };
+  h += '<div class="tform" id="bunchForm">'
+    + '<div><label>Variedad (SPS almácigo) *</label><input id="bu_sps" list="bu_vars" value="' + v("sps") + '" placeholder="Ej: BUS 41" autocomplete="off" oninput="bunchVarChange()" onchange="bunchVarChange()">'
+    + '<datalist id="bu_vars">' + vars.map(function(x){ return '<option value="' + esc(x.sps) + '">' + esc((BUNCH_LINEA[x.linea] || "") + " · " + (x.almaciguera || "") + " · " + (x.fm || []).join("/")) + '</option>'; }).join("") + '</datalist></div>'
+    + '<div><label>Línea *</label><select id="bu_linea" onchange="bunchLineaChange()">' + ["F","M","OP"].map(function(k){ return '<option value="' + k + '"' + ((e ? e.linea : "F") === k ? " selected" : "") + '>' + BUNCH_LINEA[k] + '</option>'; }).join("") + '</select></div>'
+    + '<div><label>Punto de retiro (almaciguera) *</label><select id="bu_alm">' + cfg.almacigueras.map(function(a){ return '<option' + (e && normTxt(e.almaciguera) === normTxt(a) ? " selected" : "") + '>' + esc(a) + '</option>'; }).join("") + '</select></div>'
+    + '<div style="grid-column:span 2"><label>Agricultor *</label><input id="bu_agr" list="bu_agrs" value="' + v("farmerName") + '" placeholder="Escriba para buscar…" autocomplete="off">'
+    + '<datalist id="bu_agrs">' + (state.farmers || []).map(function(f){ return '<option value="' + esc(f.name) + '">' + esc(f.comuna || "") + '</option>'; }).join("") + '</datalist></div>'
+    + '<div><label>Fecha de despacho *</label><input type="date" id="bu_fecha" value="' + v("fecha", _addDays(todayStr(), 1)) + '"></div>'
+    + '<div><label>Fecha de arranque</label><input type="date" id="bu_arr" value="' + v("fechaArranque") + '"></div>'
+    + '<div><label>Superficie a despachar (HA) *</label><input id="bu_sup" inputmode="decimal" value="' + v("supDespacho") + '" placeholder="Ej: 1,5" oninput="bunchCalc(\'sup\')"></div>'
+    + '<div><label>Superficie total (HA)</label><input id="bu_supt" inputmode="decimal" value="' + v("supTotal") + '"></div>'
+    + '<div><label>Plantas por HA *</label><input id="bu_pha" inputmode="numeric" value="' + v("plantasHa") + '" placeholder="Ej: 250000" oninput="bunchCalc(\'pha\')"></div>'
+    + '<div><label>N° de plantas</label><input id="bu_pl" inputmode="numeric" value="' + v("plantas") + '" oninput="bunchCalc(\'pl\')"></div>'
+    + '<div><label>Plantas por malla (aprox.)</label><input id="bu_ppm" inputmode="numeric" value="' + v("ppm", 1500) + '" oninput="bunchCalc(\'ppm\')"></div>'
+    + '<div><label>Mallas (aprox.)</label><input id="bu_mallas" inputmode="numeric" value="' + v("mallas") + '"></div>'
+    + '<div><label>Metros por arrancar</label><input id="bu_mts" value="' + v("metros") + '" placeholder="Ej: 836 · o todo lo que queda"></div>'
+    + '<div><label>Color malla / etiqueta</label><select id="bu_color">' + ["ROJO/AMARILLO","AZUL/BLANCO"].map(function(c){ return '<option' + ((e ? e.color : "ROJO/AMARILLO") === c ? " selected" : "") + '>' + c + '</option>'; }).join("") + '</select></div>'
+    + '<div><label>Prioridad del día</label><select id="bu_pri">' + [1,2,3,4,5,6,7,8].map(function(n){ return '<option' + ((e ? +e.prioridad : 1) === n ? " selected" : "") + '>' + n + '</option>'; }).join("") + '</select></div>'
+    + '<div><label>&nbsp;</label><label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--ink)"><input type="checkbox" id="bu_todo" style="width:auto"' + (e && e.todo ? " checked" : "") + '> Despachar todo lo que queda</label></div>'
+    + '<div style="grid-column:1/-1"><label>Observación</label><input id="bu_obs" maxlength="300" value="' + v("obs") + '"></div>'
+    + '<div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+    + '<button class="btn primary" onclick="bunchSave()">' + (e ? "💾 Guardar cambios" : "➕ Solicitar bunching") + '</button>'
+    + (e ? '<button class="btn ghost sm" onclick="_bunchEdit=null;renderBunch()">Cancelar edición</button>' : '')
+    + (!isAdmin() && cfg.variedades.length ? '<label style="display:flex;gap:5px;align-items:center;font-size:12px;margin:0"><input type="checkbox" style="width:auto"' + (_bunchTodas ? " checked" : "") + ' onchange="_bunchTodas=this.checked;renderBunch()"> Ver variedades de otros fieldman</label>' : '')
+    + (isAdmin() ? '<button class="btn ghost sm" onclick="_bunchAdmin=true;renderBunch()">⚙ Variedades y reporte</button>' : '')
+    + '<span id="bu_msg" class="hint"></span></div></div>';
+
+  var all = bunchPedidosVisibles().slice().sort(function(a,b){ return a.fecha === b.fecha ? (+a.prioridad || 9) - (+b.prioridad || 9) : (a.fecha < b.fecha ? -1 : 1); });
+  var list = all.filter(function(p){ return (_bunchFiltro === "todas" || p.estado === _bunchFiltro) && (!_bunchFecha || p.fecha === _bunchFecha); });
+  if(_bunchFiltro !== "solicitado") list.reverse();
+  var cnt = function(st){ return all.filter(function(p){ return p.estado === st; }).length; };
+  h += '<div class="hfilters" style="margin-bottom:6px">'
+    + [["solicitado","Por despachar (" + cnt("solicitado") + ")"],["despachado","Despachados (" + cnt("despachado") + ")"],["todas","Todas"]]
+      .map(function(f){ return '<button class="btn ' + (_bunchFiltro === f[0] ? "primary" : "ghost") + ' sm" onclick="_bunchFiltro=\'' + f[0] + '\';renderBunch()">' + f[1] + '</button>'; }).join("")
+    + '<label>Día <input type="date" value="' + esc(_bunchFecha) + '" onchange="_bunchFecha=this.value;renderBunch()"></label>'
+    + (_bunchFecha ? '<button class="btn ghost sm" onclick="_bunchFecha=\'\';renderBunch()">✕ Todos los días</button>' : '')
+    + (canShareToDriver() && _bunchFecha ? '<a href="#" class="wa-share" onclick="bunchWhatsAppDia();return false;">' + waSvg() + 'Arranque del día (almaciguera)</a>' : '')
+    + '<button class="btn success sm" style="margin-left:auto" onclick="bunchExport()">📊 Excel</button></div>';
+  var tm = list.reduce(function(s,p){ return s + (+p.mallas || 0); }, 0), tp = list.reduce(function(s,p){ return s + (+p.plantas || 0); }, 0);
+  h += '<div class="hint" style="margin:6px 0">' + list.length + ' solicitud(es) · ' + fmtNum(Math.round(tm)) + ' mallas · ' + fmtNum(tp) + ' plantas</div>';
+  h += list.length ? list.map(bunchCardHtml).join("") : '<div class="empty">No hay solicitudes de bunching con este filtro.</div>';
+  body.innerHTML = h;
+}
+/* Al elegir la variedad: línea, punto de retiro, plantas por malla y color quedan como vienen en el reporte */
+function bunchVarChange(){
+  var x = bunchVar(document.getElementById("bu_sps").value), msg = document.getElementById("bu_msg");
+  if(!x){ if(msg) msg.textContent = ""; return; }
+  if(x.linea){ document.getElementById("bu_linea").value = x.linea; document.getElementById("bu_color").value = BUNCH_COLOR[x.linea]; }
+  if(x.almaciguera){ var sel = document.getElementById("bu_alm"); Array.prototype.forEach.call(sel.options, function(o){ if(normTxt(o.value) === normTxt(x.almaciguera)) sel.value = o.value; }); }
+  if(+x.ppm > 0){ document.getElementById("bu_ppm").value = x.ppm; bunchCalc("ppm"); }
+  if(msg) msg.textContent = x.sps + " · " + (BUNCH_LINEA[x.linea] || "") + " · retiro sugerido: " + (x.almaciguera || "—") + " · FM " + (x.fm || []).join("/");
+}
+function bunchLineaChange(){ document.getElementById("bu_color").value = BUNCH_COLOR[document.getElementById("bu_linea").value]; }
+/* plantas = superficie × plantas/HA · mallas = plantas ÷ plantas por malla (solo referencia) */
+function bunchCalc(src){
+  var g = function(id){ return document.getElementById(id); };
+  if(src === "sup" || src === "pha"){
+    var sup = _bdec(g("bu_sup").value), pha = _bn(g("bu_pha").value);
+    if(sup > 0 && pha > 0) g("bu_pl").value = Math.round(sup * pha);
+  }
+  var pl = _bn(g("bu_pl").value), ppm = _bn(g("bu_ppm").value);
+  if(pl > 0 && ppm > 0) g("bu_mallas").value = Math.ceil(pl / ppm);
+}
+function bunchCardHtml(p){
+  var est = BUNCH_ESTADO[p.estado] || ["?", ""], id = "'" + p.id + "'";
+  var veh = (p.truckIds || []).map(function(t){ var k = truckById(t); return k ? k.name : t; }).join(" + ");
+  var h = '<div class="tcard e_' + esc(p.estado) + '"><div class="th">'
+    + '<span class="tn">🌿 ' + esc(p.sps) + '</span><span class="tchip">' + (BUNCH_LINEA[p.linea] || "") + '</span>'
+    + '<span class="tchip ' + est[1] + '">' + est[0] + '</span><span class="tchip b">Prioridad ' + esc(p.prioridad || "—") + '</span>'
+    + (p.todo ? '<span class="tchip r">Despachar todo</span>' : '')
+    + (p.estado === "solicitado" && p.fecha < todayStr() ? '<span class="tchip r">⚠ Atrasado</span>' : '') + '</div>'
+    + '<div style="margin-top:4px"><strong>' + esc(p.farmerName || "—") + '</strong>' + (p.comuna ? ' · ' + esc(p.comuna) : '') + '</div>'
+    + '<div class="hint">📅 Despacho ' + _dmy(p.fecha) + (p.fechaArranque ? ' · arranque ' + _dmy(p.fechaArranque) : '') + ' · 📍 Retiro en <strong>' + esc(p.almaciguera || "—") + '</strong> · 👤 ' + esc(p.user || "") + (p.fm ? ' (' + esc(p.fm) + ')' : '') + '</div>'
+    + '<div style="font-size:13px;margin-top:3px">🧺 <strong>' + fmtNum(Math.round(+p.mallas || 0)) + ' mallas</strong> aprox. · ' + fmtNum(p.plantas) + ' plantas · ' + String(p.supDespacho || "").replace(".", ",") + ' HA'
+    + (p.metros ? ' · ' + esc(p.metros) + ' m por arrancar' : '') + ' · 🏷 ' + esc(p.color || "") + '</div>'
+    + (p.estado === "despachado" ? '<div style="font-size:13px;color:#2e7d52">✔ Mallas reales: <strong>' + fmtNum(p.mallasFinal) + '</strong>' + (+p.ppmReal ? ' · ' + fmtNum(p.ppmReal) + ' plantas por malla real' : '')
+        + ((+p.mallasFinal || 0) !== Math.round(+p.mallas || 0) ? ' · diferencia ' + ((+p.mallasFinal - Math.round(+p.mallas || 0)) > 0 ? "+" : "") + fmtNum(+p.mallasFinal - Math.round(+p.mallas || 0)) : '') + '</div>' : '')
+    + (veh ? '<div class="hint">🚛 ' + esc(veh) + '</div>' : '')
+    + (p.obs ? '<div class="hint">📝 ' + esc(p.obs) + '</div>' : '');
+  var btn = [];
+  if(isAdmin() && p.estado === "solicitado"){
+    btn.push('<span class="tacc" style="gap:8px">' + (state.config.trucks || []).map(function(t){ return '<label><input type="checkbox" style="width:auto"' + ((p.truckIds || []).indexOf(t.id) >= 0 ? " checked" : "") + ' onchange="bunchTruck(' + id + ',\'' + t.id + '\',this.checked)"> ' + esc(t.name) + '</label>'; }).join("") + '</span>');
+    btn.push('<button class="btn success sm" onclick="bunchDespachar(' + id + ')">✔ Despachado</button>');
+  }
+  if(canShareToDriver() && p.estado === "solicitado") btn.push('<a href="#" class="wa-share" onclick="bunchWhatsApp(' + id + ');return false;">' + waSvg() + 'WhatsApp conductor</a>');
+  if(bunchPuedeEditar(p) && p.estado === "solicitado"){
+    btn.push('<button class="btn ghost sm" onclick="_bunchEdit=' + id + ';renderBunch();document.getElementById(\'bunchBody\').scrollTop=0">✎ Editar</button>');
+    btn.push('<button class="btn ghost sm" onclick="bunchCancelar(' + id + ')">✕ Cancelar</button>');
+  }
+  if(isAdmin() && p.estado === "despachado") btn.push('<button class="btn ghost sm" onclick="bunchDespachar(' + id + ')">✎ Corregir mallas reales</button>');
+  if(isAdmin() && p.estado !== "solicitado") btn.push('<button class="btn ghost sm" onclick="bunchDelete(' + id + ')">🗑 Eliminar</button>');
+  return h + (btn.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">' + btn.join("") + '</div>' : '') + '</div>';
+}
+function bunchSave(){
+  var msg = document.getElementById("bu_msg"), g = function(id){ return document.getElementById(id).value.trim(); };
+  var sps = g("bu_sps"), agr = g("bu_agr"), fecha = g("bu_fecha"), sup = _bdec(g("bu_sup")), pha = _bn(g("bu_pha")), pl = _bn(g("bu_pl")), ppm = _bn(g("bu_ppm")), mallas = _bn(g("bu_mallas"));
+  if(!sps){ msg.textContent = "⚠ Indique la variedad (SPS almácigo)."; return; }
+  if(!agr){ msg.textContent = "⚠ Indique el agricultor."; return; }
+  if(!fecha){ msg.textContent = "⚠ Indique la fecha de despacho."; return; }
+  if(!(sup > 0)){ msg.textContent = "⚠ Indique la superficie a despachar."; return; }
+  if(!(pl > 0)){ msg.textContent = "⚠ Indique las plantas por HA o el N° de plantas."; return; }
+  if(!(mallas > 0) && ppm > 0) mallas = Math.ceil(pl / ppm);
+  var x = bunchVar(sps), f = (state.farmers || []).filter(function(y){ return normTxt(y.name) === normTxt(agr); })[0];
+  var mine = bunchMisFM(), fm = x && (x.fm || []).filter(function(c){ return mine.indexOf(c) >= 0; })[0] || (mine[0] || (x && (x.fm || [])[0]) || "");
+  var data = {sps: x ? x.sps : sps.toUpperCase(), linea: g("bu_linea"), almaciguera: g("bu_alm"),
+    farmerName: f ? f.name : agr, farmerId: f ? f.id : "", contacto: f ? (f.contacto || "") : "", telefono: f ? (f.phone || "") : "", rut: f ? (f.rut || "") : "",
+    localidad: f ? (f.address || f.sector || "") : "", comuna: f ? (f.comuna || "") : "", region: f ? (f.region || "") : "", mapsUrl: f ? (f.mapsUrl || "") : "",
+    fecha: fecha, fechaArranque: g("bu_arr"), supDespacho: sup, supTotal: _bdec(g("bu_supt")) || "", plantasHa: pha || "", plantas: Math.round(pl), ppm: ppm || "", mallas: mallas || "",
+    metros: g("bu_mts"), color: g("bu_color"), prioridad: +g("bu_pri") || 1, todo: document.getElementById("bu_todo").checked, obs: g("bu_obs"),
+    updatedAt: new Date().toISOString(), updatedBy: currentUser};
+  var fb = storageMode === "firebase" && FBApi.isAvailable(), job;
+  if(_bunchEdit){
+    var id = _bunchEdit;
+    bunchPedidos().forEach(function(p){ if(p.id === id) Object.assign(p, data); });
+    job = fb ? FBApi.updateDocument("bunchingPedidos", id, data) : Promise.resolve();
+  } else {
+    Object.assign(data, {estado: "solicitado", user: currentUser, fm: fm, truckIds: [], createdAt: new Date().toISOString()});
+    if(fb) job = FBApi.addDocument("bunchingPedidos", data);
+    else { state.bunchPedidos = bunchPedidos().concat([Object.assign({id: "b" + Date.now()}, data)]); job = Promise.resolve(); }
+  }
+  _bunchEdit = null;
+  job.then(function(){ renderBunch(); var m = document.getElementById("bu_msg"); if(m) m.textContent = "✅ Solicitud guardada"; bunchRefresh(); })
+     .catch(function(err){ alert("❌ No se pudo guardar la solicitud: " + err.message); });
+}
+function _bunchUpd(id, upd){
+  bunchPedidos().forEach(function(p){ if(p.id === id) Object.assign(p, upd); });
+  var job = (storageMode === "firebase" && FBApi.isAvailable()) ? FBApi.updateDocument("bunchingPedidos", id, upd) : Promise.resolve();
+  job.catch(function(e){ alert("❌ No se pudo guardar: " + e.message); });
+}
+function bunchTruck(id, truckId, on){
+  var p = bunchPedidos().filter(function(x){ return x.id === id; })[0]; if(!p) return;
+  var l = (p.truckIds || []).filter(function(t){ return t !== truckId; }); if(on) l.push(truckId);
+  _bunchUpd(id, {truckIds: l, updatedAt: new Date().toISOString(), updatedBy: currentUser});
+}
+/* Cierre: se anota lo real del terreno (mallas y plantas por malla), que suele diferir del cálculo */
+function bunchDespachar(id){
+  var p = bunchPedidos().filter(function(x){ return x.id === id; })[0]; if(!p) return;
+  var m = prompt("Mallas REALES despachadas de " + p.sps + " para " + p.farmerName + "\n(calculadas: " + fmtNum(Math.round(+p.mallas || 0)) + ")", p.mallasFinal != null ? p.mallasFinal : Math.round(+p.mallas || 0));
+  if(m === null) return;
+  m = _bn(m); if(!(m >= 0)){ alert("Ingrese un número válido."); return; }
+  var r = prompt("Plantas por malla REAL en terreno (opcional).\nReferencia usada: " + fmtNum(p.ppm || 0), p.ppmReal || "");
+  if(r === null) return;
+  var now = new Date().toISOString();
+  _bunchUpd(id, {estado: "despachado", mallasFinal: m, ppmReal: _bn(r) || "", despachadoAt: p.despachadoAt || now, despachadoPor: currentUser, updatedAt: now, updatedBy: currentUser});
+  renderBunch(); bunchRefresh();
+}
+function bunchCancelar(id){
+  var p = bunchPedidos().filter(function(x){ return x.id === id; })[0]; if(!p) return;
+  if(!confirm("¿Cancelar la solicitud de " + p.sps + " para " + p.farmerName + " del " + _dmy(p.fecha) + "?")) return;
+  _bunchUpd(id, {estado: "cancelado", updatedAt: new Date().toISOString(), updatedBy: currentUser}); renderBunch(); bunchRefresh();
+}
+function bunchDelete(id){
+  if(!isAdmin() || !confirm("¿Eliminar esta solicitud del registro? No se puede deshacer.")) return;
+  state.bunchPedidos = bunchPedidos().filter(function(p){ return p.id !== id; });
+  if(storageMode === "firebase" && FBApi.isAvailable()) FBApi.deleteDocument("bunchingPedidos", id).catch(function(e){ alert("❌ " + e.message); });
+  renderBunch();
+}
+function _bunchLines(p, n){
+  var L = [(n != null ? (_numEmoji[n] || (n + 1) + ".") + " " : "") + "*" + p.sps + "* · " + (BUNCH_LINEA[p.linea] || "") + " · 🏷 " + (p.color || "")];
+  L.push("   🧺 *" + fmtNum(Math.round(+p.mallas || 0)) + " mallas* aprox. · " + fmtNum(p.plantas) + " plantas" + (p.metros ? " · " + p.metros + " m" : "") + (p.todo ? " · *ARRANCAR TODO*" : ""));
+  L.push("   🌾 " + (p.farmerName || "—") + (p.comuna ? " (" + p.comuna + ")" : ""));
+  L.push("   👤 " + (p.user || "") + (p.obs ? " · 📝 " + p.obs : ""));
+  return L;
+}
+function bunchWhatsApp(id){
+  var p = bunchPedidos().filter(function(x){ return x.id === id; })[0]; if(!p) return;
+  var veh = (p.truckIds || []).map(function(t){ var k = truckById(t); return k ? k.name : t; }).join(" + ");
+  var L = ["🌿 *DESPACHO BUNCHING · SPS CHILE*", "📅 " + dayLong(p.fecha), "", "📍 *Retiro: almaciguera " + (p.almaciguera || "—") + "*"];
+  if(veh) L.push("🚛 " + veh);
+  L.push("", "🌾 *" + (p.farmerName || "—") + "*");
+  if(p.localidad || p.comuna) L.push("📍 Entrega: " + [p.localidad, p.comuna].filter(Boolean).join(", "));
+  if(p.mapsUrl && /^https:\/\//.test(p.mapsUrl)) L.push("🧭 " + p.mapsUrl);
+  if(p.telefono || p.contacto) L.push("📞 " + [p.contacto, p.telefono].filter(Boolean).join(" · "));
+  L.push("", "🌱 *" + p.sps + "* · " + (BUNCH_LINEA[p.linea] || "") + " · 🏷 " + (p.color || ""));
+  L.push("🧺 *" + fmtNum(Math.round(+p.mallas || 0)) + " mallas* aprox. · " + fmtNum(p.plantas) + " plantas");
+  L.push("👤 Solicitó: " + (p.user || ""));
+  if(p.obs) L.push("📝 " + p.obs);
+  _shareText(L.join("\n"));
+}
+/* Mensaje del día para la almaciguera: qué arrancar, en orden de prioridad */
+function bunchWhatsAppDia(){
+  var arr = bunchPedidos().filter(function(p){ return p.estado === "solicitado" && p.fecha === _bunchFecha; });
+  if(!arr.length){ alert("No hay solicitudes por despachar ese día."); return; }
+  var L = ["🌿 *ARRANQUE BUNCHING · SPS CHILE*", "📅 Despacho " + dayLong(_bunchFecha)], g = {}, orden = [], tot = 0;
+  arr.sort(function(a,b){ return (+a.prioridad || 9) - (+b.prioridad || 9); }).forEach(function(p){ var k = p.almaciguera || "—"; if(!g[k]){ g[k] = []; orden.push(k); } g[k].push(p); });
+  orden.forEach(function(k){
+    var m = g[k].reduce(function(s,p){ return s + Math.round(+p.mallas || 0); }, 0); tot += m;
+    L.push("━━━━━━━━━━━━━━", "📍 *Almaciguera " + k + "* · " + g[k].length + " pedido(s) · " + fmtNum(m) + " mallas");
+    g[k].forEach(function(p, i){ L.push(""); L = L.concat(_bunchLines(p, i)); });
+  });
+  L.push("━━━━━━━━━━━━━━", "📊 *Total del día: " + fmtNum(tot) + " mallas* · " + arr.length + " pedido(s)");
+  _shareText(L.join("\n"));
+}
+function bunchDayHtml(ds){
+  var arr = bunchPedidosVisibles().filter(function(p){ return p.estado === "solicitado" && p.fecha === ds; });
+  if(!arr.length) return "";
+  var m = arr.reduce(function(s,p){ return s + Math.round(+p.mallas || 0); }, 0);
+  return '<div class="tk" style="border-left:4px solid #2e7d52;cursor:pointer" onclick="_bunchFecha=\'' + ds + '\';_bunchFiltro=\'solicitado\';openBunch()"><div class="tkhead"><span class="tkname">🌿 Bunching este día</span><span class="tkcap">' + arr.length + ' pedido(s) · ' + fmtNum(m) + ' mallas</span></div>'
+    + arr.sort(function(a,b){ return (+a.prioridad || 9) - (+b.prioridad || 9); }).map(function(p){ return '<div style="font-size:13px"><strong>' + esc(p.sps) + '</strong> · ' + esc(p.farmerName) + ' <span class="hint">(' + fmtNum(Math.round(+p.mallas || 0)) + ' mallas · ' + esc(p.almaciguera || "") + ')</span></div>'; }).join("") + '</div>';
+}
+
+/* --- Logística: variedades (desde el reporte), puntos de retiro y códigos de fieldman --- */
+function bunchAdminHtml(cfg){
+  var vars = cfg.variedades.slice().sort(function(a,b){ return String(a.sps).localeCompare(String(b.sps), undefined, {numeric: true}); });
+  var ped = bunchPedidos().filter(function(p){ return p.estado !== "cancelado"; });
+  var h = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">'
+    + '<button class="btn primary sm" onclick="document.getElementById(\'impBunch\').click()">📥 Subir reporte de bunching (Excel)</button>'
+    + '<button class="btn ghost sm" onclick="bunchEditAlm()">📍 Puntos de retiro</button>'
+    + '<button class="btn ghost sm" onclick="bunchEditFm()">👤 Códigos de fieldman</button>'
+    + '<button class="btn ghost sm" onclick="_bunchAdmin=false;renderBunch()">← Volver a solicitudes</button>'
+    + '<span id="ba_msg" class="hint">' + (cfg.reporteAt ? 'Último reporte: ' + esc(cfg.reporte) + ' · ' + _dmy(cfg.reporteAt.slice(0,10)) : '') + '</span></div>'
+    + '<div class="hint" style="margin-bottom:8px">Puntos de retiro: <strong>' + esc(cfg.almacigueras.join(" · ")) + '</strong> &nbsp;|&nbsp; Fieldman: '
+    + Object.keys(cfg.fmMap).sort().map(function(k){ return '<strong>' + esc(k) + '</strong> = ' + esc(cfg.fmMap[k]); }).join(" · ") + '</div>';
+  if(!vars.length) return h + '<div class="empty">Aún no hay variedades. Suba el reporte de bunching: la app toma de ahí cada código SPS, su línea (hembra / macho / OP), el fieldman asignado, la almaciguera y las plantas por malla.</div>';
+  h += '<div style="overflow:auto;max-height:56vh;border:1px solid var(--line,#d8e0ea);border-radius:8px"><table class="rtab" style="min-width:640px"><thead><tr>'
+    + '<th>SPS almácigo</th><th>Línea</th><th>Fieldman</th><th>Almaciguera</th><th class="n">Plantas/malla</th><th class="n">Solicitudes</th><th class="n">Mallas solicitadas</th><th class="n">Plantas solicitadas</th><th class="n">Mallas reales</th></tr></thead><tbody>'
+    + vars.map(function(x){
+        var mine = ped.filter(function(p){ return _bunchKey(p.sps) === _bunchKey(x.sps); });
+        var sm = mine.reduce(function(s,p){ return s + Math.round(+p.mallas || 0); }, 0), sp = mine.reduce(function(s,p){ return s + (+p.plantas || 0); }, 0);
+        var sr = mine.filter(function(p){ return p.estado === "despachado"; }).reduce(function(s,p){ return s + (+p.mallasFinal || 0); }, 0);
+        return '<tr><td><strong>' + esc(x.sps) + '</strong></td><td>' + (BUNCH_LINEA[x.linea] || "—") + '</td><td>' + esc((x.fm || []).join(" / ")) + '</td><td>' + esc(x.almaciguera || "—") + '</td><td class="n">' + (x.ppm ? fmtNum(x.ppm) : "—") + '</td>'
+          + '<td class="n">' + mine.length + '</td><td class="n">' + fmtNum(sm) + '</td><td class="n">' + fmtNum(sp) + '</td><td class="n">' + (sr ? fmtNum(sr) : "—") + '</td></tr>';
+      }).join("") + '</tbody></table></div>';
+  return h;
+}
+function bunchEditAlm(){
+  var cfg = bunchCfg(), v = prompt("Puntos de retiro (almacigueras), separados por coma:", cfg.almacigueras.join(", "));
+  if(v === null) return;
+  var l = v.split(",").map(function(x){ return x.trim(); }).filter(Boolean);
+  if(!l.length){ alert("Debe quedar al menos un punto de retiro."); return; }
+  cfg.almacigueras = l; bunchSaveCfg(cfg).then(renderBunch);
+}
+function bunchEditFm(){
+  var cfg = bunchCfg();
+  var v = prompt("Código de fieldman = usuario de la app, separados por coma.\nUsuarios: " + APP_CONFIG.authorizedUsers.map(function(u){ return u.name; }).join(" · "),
+    Object.keys(cfg.fmMap).sort().map(function(k){ return k + "=" + cfg.fmMap[k]; }).join(", "));
+  if(v === null) return;
+  var m = {};
+  v.split(",").forEach(function(par){ var i = par.indexOf("="); if(i > 0){ var k = par.slice(0, i).trim().toUpperCase(), u = par.slice(i + 1).trim(); if(k && u) m[k] = u; } });
+  cfg.fmMapOwn = m; bunchSaveCfg(cfg).then(renderBunch);
+}
+/* Importa el reporte: de cada fila toma SPS, línea, fieldman, almaciguera y plantas por malla */
+function bunchImport(ev){
+  var file = ev.target.files && ev.target.files[0]; ev.target.value = "";
+  if(!file) return;
+  if(typeof ExcelJS === "undefined"){ alert("ExcelJS no está disponible. No se puede leer el Excel."); return; }
+  var rd = new FileReader();
+  rd.onload = function(){
+    var wb = new ExcelJS.Workbook();
+    wb.xlsx.load(rd.result).then(function(){
+      var res = null;
+      wb.worksheets.some(function(ws){ res = bunchParseSheet(ws); return !!res; });
+      if(!res){ alert("No se encontró la fila de encabezados (se esperan columnas como FIELDMAN y SPS CODE ALMACIGO)."); return; }
+      if(!res.vars.length){ alert("El reporte no trae filas con código SPS."); return; }
+      var cfg = bunchCfg(), antes = cfg.variedades.length;
+      cfg.variedades = res.vars;
+      res.alms.forEach(function(a){ if(!cfg.almacigueras.some(function(x){ return normTxt(x) === normTxt(a); })) cfg.almacigueras.push(a); });
+      cfg.reporte = file.name; cfg.reporteAt = new Date().toISOString();
+      bunchSaveCfg(cfg).then(function(){
+        renderBunch();
+        var sinFm = res.fms.filter(function(c){ return !cfg.fmMap[c]; });
+        alert("✅ Reporte de bunching cargado\n\n  🌿 Variedades (códigos SPS): " + res.vars.length + (antes ? " (antes " + antes + ")" : "")
+          + "\n  📄 Filas leídas: " + res.filas + "\n  📍 Almacigueras: " + (res.alms.join(", ") || "—") + "\n  👤 Fieldman: " + res.fms.join(", ")
+          + (sinFm.length ? "\n\n⚠ Códigos sin usuario asignado: " + sinFm.join(", ") + "\n   Asígnelos en «👤 Códigos de fieldman» para que vean sus variedades." : ""));
+      }).catch(function(e){ alert("❌ No se pudo guardar el reporte: " + e.message); });
+    }).catch(function(e){ alert("❌ No se pudo leer el Excel: " + e.message); });
+  };
+  rd.readAsArrayBuffer(file);
+}
+function bunchParseSheet(ws){
+  var hr = 0, col = {};
+  for(var r = 1; r <= Math.min(12, ws.rowCount) && !hr; r++){
+    var row = ws.getRow(r), m = {};
+    for(var c = 1; c <= Math.max(row.cellCount, 40); c++){
+      var t = normHeader(excelCellValue(row.getCell(c)));
+      if(!t) continue;
+      var set = (function(cc){ return function(k){ if(m[k] == null) m[k] = cc; }; })(c);
+      if(t === "FIELDMAN" || t === "FM") set("fm");
+      else if(t.indexOf("SPS") >= 0) set("sps");
+      else if(t === "FEMALE" || t === "HEMBRA") set("f");
+      else if(t === "MALE" || t === "MACHO") set("m");
+      else if(t === "OP") set("op");
+      else if(t === "LINEA") set("linea");
+      else if(t.indexOf("ALMACIGUERA") >= 0 || t.indexOf("PUNTO DE RETIRO") >= 0) set("alm");
+      else if(t.indexOf("PLANTAS POR MALLA") >= 0 && t.indexOf("REAL") < 0) set("ppm");
+      else if(t === "MALLAS" || t === "N MALLAS") set("mallas");
+      else if(t === "N PLANTAS" || t === "PLANTAS") set("plantas");
+    }
+    if(m.sps != null && m.fm != null){ hr = r; col = m; }
+  }
+  if(!hr) return null;
+  var by = {}, orden = [], filas = 0, alms = {}, fms = {};
+  var txt = function(row, k){ return col[k] == null ? "" : String(excelCellValue(row.getCell(col[k])) == null ? "" : excelCellValue(row.getCell(col[k]))).trim(); };
+  var num = function(row, k){ var v = col[k] == null ? null : excelCellValue(row.getCell(col[k])); return typeof v === "number" ? v : 0; };
+  var cap = function(t){ t = String(t).trim().toLowerCase(); return t.replace(/(^|\s)\S/g, function(c){ return c.toUpperCase(); }); };
+  for(var i = hr + 1; i <= ws.rowCount; i++){
+    var row = ws.getRow(i), sps = txt(row, "sps");
+    if(!sps) continue;
+    filas++;
+    var k = _bunchKey(sps);
+    if(!by[k]){ by[k] = {sps: sps.toUpperCase().replace(/^([A-Z]+)\s*(\d+)$/, "$1 $2"), lin: {}, fm: {}, alm: {}, ppm: {}}; orden.push(k); }
+    var v = by[k];
+    var ln = txt(row, "f") ? "F" : (txt(row, "m") ? "M" : (txt(row, "op") ? "OP" : ""));
+    if(!ln && col.linea != null){ var lt = normHeader(txt(row, "linea")); ln = /^(F|HEM|FEM)/.test(lt) ? "F" : (/^(M|MAC|MAL)/.test(lt) ? "M" : (lt ? "OP" : "")); }
+    if(ln) v.lin[ln] = (v.lin[ln] || 0) + 1;
+    splitFMCodes(txt(row, "fm").toUpperCase()).forEach(function(c){ if(c){ v.fm[c] = 1; fms[c] = 1; } });
+    var a = txt(row, "alm"); if(a){ a = cap(a); v.alm[a] = (v.alm[a] || 0) + 1; alms[a] = 1; }
+    var ppm = num(row, "ppm");
+    if(!ppm){ var ma = num(row, "mallas"), pl = num(row, "plantas"); if(ma > 0 && pl > 0) ppm = Math.round(pl / ma); }
+    if(ppm > 0) v.ppm[ppm] = (v.ppm[ppm] || 0) + 1;
+  }
+  var top = function(o){ var b = "", n = 0; Object.keys(o).forEach(function(x){ if(o[x] > n){ n = o[x]; b = x; } }); return b; };
+  return {filas: filas, alms: Object.keys(alms), fms: Object.keys(fms).sort(),
+    vars: orden.map(function(k){ var v = by[k]; return {sps: v.sps, linea: top(v.lin) || "", fm: Object.keys(v.fm).sort(), almaciguera: top(v.alm), ppm: +top(v.ppm) || 0}; })};
+}
+/* Excel con el mismo formato de la planilla de despachos de bunching */
+function bunchExport(){
+  var rows = bunchPedidosVisibles().filter(function(p){ return p.estado !== "cancelado" && (!_bunchFecha || p.fecha === _bunchFecha); });
+  if(!rows.length){ alert("No hay solicitudes de bunching para exportar."); return; }
+  if(typeof ExcelJS === "undefined"){ alert("ExcelJS no está disponible. No se puede generar el Excel."); return; }
+  var wb = new ExcelJS.Workbook(), ws = wb.addWorksheet("DESPACHOS", {views: [{state: "frozen", ySplit: 1}]});
+  var cols = [["AGRICULTOR",32],["CONTACTO",20],["FONO",13],["RUT AGRICULTOR",14],["LOCALIDAD",24],["COMUNA/PROVINCIA",18],["REGION",9],["FIELDMAN",10],["SPS CODE ALMACIGO",12],["FEMALE",8],["MALE",7],["OP",6],
+    ["SUPERFICIE (HA) DESPACHO",11],["SUPERFICIE (HA) TOTAL",11],["FECHA ARRANQUE",12],["FECHA DESPACHO",12],["METROS POR ARRANCAR",12],["MALLAS",9],["COLOR ETIQUETAS/MALLA",16],["N° PLANTAS",12],["N° DE PLANTAS / HA",12],
+    ["DESPACHAR TODO (SI/NO)",10],["PRIORIDAD DE DESPACHO DIARIO",10],["ALMACIGUERA",13],["OBSERVACIONES",34],["VEHÍCULO",18],["ESTADO",12],["Mallas final",10],["PLANTAS POR MALLA",10],["DIFERENCIA MALLAS CALCULO/CAMPO",12],["PLANTAS POR MALLA REAL",10],["SOLICITÓ",20]];
+  ws.columns = cols.map(function(c){ return {header: c[0], width: c[1]}; });
+  var h = ws.getRow(1); h.height = 42;
+  h.eachCell(function(c){ c.fill = {type: "pattern", pattern: "solid", fgColor: {argb: "FF14366E"}}; c.font = {bold: true, size: 9, color: {argb: "FFFFFFFF"}}; c.alignment = {vertical: "middle", horizontal: "center", wrapText: true}; });
+  var fd = function(ymd){ return ymd ? localDateFromYMD(ymd) : null; };
+  rows.slice().sort(function(a,b){ return a.fecha === b.fecha ? (+a.prioridad || 9) - (+b.prioridad || 9) : (a.fecha < b.fecha ? -1 : 1); }).forEach(function(p){
+    var mc = Math.round(+p.mallas || 0), fin = p.estado === "despachado";
+    var row = ws.addRow([p.farmerName || "", p.contacto || "", p.telefono || "", p.rut || "", p.localidad || "", p.comuna || "", p.region || "", p.fm || "", p.sps,
+      p.linea === "F" ? "X" : "", p.linea === "M" ? "X" : "", p.linea === "OP" ? "X" : "", +p.supDespacho || null, +p.supTotal || null, fd(p.fechaArranque), fd(p.fecha),
+      /^\d+([.,]\d+)?$/.test(String(p.metros || "")) ? _bdec(p.metros) : (p.metros || ""), mc, p.color || "", +p.plantas || 0, +p.plantasHa || null, p.todo ? "SI" : "NO", +p.prioridad || null, p.almaciguera || "", p.obs || "",
+      (p.truckIds || []).map(function(t){ var k = truckById(t); return k ? k.name : t; }).join(" + "), (BUNCH_ESTADO[p.estado] || [p.estado])[0],
+      fin ? +p.mallasFinal : null, +p.ppm || null, fin ? (+p.mallasFinal - mc) : null, +p.ppmReal || null, p.user || ""]);
+    row.getCell(15).numFmt = "dd-mm-yyyy"; row.getCell(16).numFmt = "dd-mm-yyyy"; row.getCell(20).numFmt = "#,##0"; row.getCell(21).numFmt = "#,##0";
+    var arg = p.linea === "F" ? "FFFDEDEC" : "FFEAF2FB";
+    [9,10,11,12,19].forEach(function(c){ row.getCell(c).fill = {type: "pattern", pattern: "solid", fgColor: {argb: arg}}; });
+  });
+  ws.autoFilter = {from: {row: 1, column: 1}, to: {row: 1, column: cols.length}};
+  wb.xlsx.writeBuffer().then(function(buf){ downloadBlob(new Blob([buf], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "BUNCHING_DESPACHOS_" + (_bunchFecha ? _dmy(_bunchFecha) : todayStrDDMMYYYY()) + ".xlsx"); });
+}
+
 /* ===================== TRILLADORAS NOGUEIRA: solicitud, traslado y control ===================== */
 var TRILL_ACC_DEFAULT = ["Cardán", "Harneros", "Correas de repuesto", "Manual / herramientas"];
 var TRILL_TRASLADO = {"": "Por definir", "carro_camioneta": "Carro con camioneta", "camion": "Camión"};
@@ -3407,6 +3838,7 @@ function renderDay(ds){
     + '<div class="bar"><i class="'+(pctDia>=85?"hot":"")+'" style="width:'+pctDia+'%"></i></div>'
     + '<div class="tkmeta"><span>' + (totDia > lim ? '⚠ Excede el límite en ' + fmtNum(totDia - lim) + ' bandejas: reagenda algún despacho'
         : 'Quedan ' + fmtNum(lim - totDia) + ' bandejas disponibles') + '</span></div></div>';
+  html += bunchDayHtml(ds);
   html += trillDayHtml(ds);
   // Truck utilization bars
   html += '<div class="trucks">';
